@@ -1,0 +1,17 @@
+{
+  "name": "Molecule · 分子工坊",
+  "short_name": "Molecule",
+  "description": "把一句想法变成可执行项目的多智能体工作台",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f1e8",
+  "theme_color": "#171915",
+  "icons": [
+    {
+      "src": "./assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

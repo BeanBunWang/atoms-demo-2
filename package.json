@@ -1,0 +1,10 @@
+{
+  "name": "atoms-demo-molecule",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check site/js/app.js && node --check site/js/planner.js && node --check site/js/storage.js && node --check site/sw.js"
+  }
+}
