@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   AGENTS,
+  applyModelPlan,
   approvePlan,
   buildProgress,
   createWorkspace,
@@ -51,6 +52,21 @@ test("追加指令会生成新的计划审批轮次", () => {
   assert.equal(updated.messages.at(-1).role, "agent");
 });
 
+test("真实模型结果会更新计划、预览和代码", () => {
+  const workspace = createWorkspace({ title: "A", prompt: "做一个旅行应用", mode: "team" });
+  const updated = applyModelPlan(workspace, {
+    title: "城市拾光",
+    assistantMessage: "我把需求聚焦为一条可收藏的城市路线。",
+    plan: Array.from({ length: 4 }, (_, index) => ({ title: `步骤 ${index + 1}`, detail: `交付 ${index + 1}` })),
+    preview: { title: "城市拾光", subtitle: "发现附近的好去处", cardTitle: "今日路线", cardMeta: "3 个地点", button: "开始探索", accent: "#123456" }
+  }, "deepseek-v4-flash");
+
+  assert.equal(updated.modelSource, "deepseek-v4-flash");
+  assert.equal(updated.preview.title, "城市拾光");
+  assert.match(updated.code, /城市拾光/);
+  assert.match(updated.messages.at(-1).text, /聚焦/);
+});
+
 test("可视编辑和发布更新交付状态", () => {
   let workspace = createWorkspace({ title: "A", prompt: "做一个健康习惯应用", mode: "team" });
   workspace = approvePlan(workspace);
@@ -74,11 +90,11 @@ test("本地状态可以安全加载与导入", () => {
   const imported = parseImportedState(JSON.stringify(state));
   assert.equal(isValidState(imported), true);
   assert.equal(imported.activeWorkspaceId, "workspace-demo");
-  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v2");
+  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v3");
   assert.throws(() => parseImportedState('{"version":1}'), /有效/);
 
   const brokenStorage = { getItem: () => "{broken" };
-  assert.equal(loadState(brokenStorage).version, 2);
+  assert.equal(loadState(brokenStorage).version, 3);
 });
 
 test("页面为 placeholder 提供显式输入态契约", async () => {

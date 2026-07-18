@@ -39,6 +39,7 @@ function buildPreview(prompt, title) {
   const accent = travel ? "#ff6b46" : reading ? "#6a63ff" : habit ? "#33a36b" : "#246bfd";
   return {
     title: title || inferTitle(text),
+    eyebrow: travel ? "MAKE SPACE FOR THE WEEKEND" : reading ? "A QUIET SPACE TO READ" : habit ? "SMALL STEPS, EVERY DAY" : "BUILT AROUND YOUR DAY",
     subtitle: travel
       ? "收藏灵感，生成一条真正松弛的周末路线。"
       : reading
@@ -51,7 +52,34 @@ function buildPreview(prompt, title) {
     accent,
     cardTitle: travel ? "本周精选路线" : reading ? "继续阅读" : habit ? "今日微习惯" : "今天从这里开始",
     cardMeta: travel ? "3 个地点 · 4.2 km" : reading ? "《创造知识的方法》 · 38%" : habit ? "连续 7 天 · 还差 12 分钟" : "3 项待完成 · 预计 24 分钟",
-    button: /收藏/.test(text) ? "加入收藏" : travel ? "生成我的路线" : reading ? "记录进度" : habit ? "完成打卡" : "开始体验"
+    button: /收藏/.test(text) ? "加入收藏" : travel ? "生成我的路线" : reading ? "记录进度" : habit ? "完成打卡" : "开始体验",
+    navItems: travel ? ["发现", "收藏"] : reading ? ["书架", "笔记"] : habit ? ["今日", "趋势"] : ["首页", "记录"],
+    visualStart: travel ? "09:30" : reading ? "CH. 04" : habit ? "DAY 01" : "START",
+    visualEnd: travel ? "16:40" : reading ? "38%" : habit ? "DAY 07" : "DONE",
+    visualLabel: travel ? "3 stops" : reading ? "12 pages" : habit ? "7 day streak" : "in progress",
+    features: travel
+      ? [
+          { title: "慢一点出发", detail: "不早起，也不错过城市醒来的时刻。" },
+          { title: "只选三站", detail: "留出足够空白，让偶遇真的发生。" },
+          { title: "保存灵感", detail: "把喜欢的地方变成下一次出发。" }
+        ]
+      : reading
+        ? [
+            { title: "安静书架", detail: "集中保存想读、在读和读完的书。" },
+            { title: "轻量记录", detail: "用一句话留下此刻最重要的想法。" },
+            { title: "阅读节奏", detail: "看见进度，但不让数字制造压力。" }
+          ]
+        : habit
+          ? [
+              { title: "从小开始", detail: "把目标缩小到今天可以完成的一步。" },
+              { title: "及时反馈", detail: "完成后马上看见连续行动的积累。" },
+              { title: "温和提醒", detail: "在合适的时间提醒，不打断生活。" }
+            ]
+          : [
+              { title: "清晰入口", detail: "最快一步进入今天最重要的任务。" },
+              { title: "即时状态", detail: "每次操作都有明确、可信的反馈。" },
+              { title: "持续积累", detail: "让零散记录逐渐形成有用的结果。" }
+            ]
   };
 }
 
@@ -80,7 +108,7 @@ function createCode(preview) {
   return (
     <main className="app">
       <header className="hero">
-        <span className="eyebrow">YOUR DAILY SPACE</span>
+        <span className="eyebrow">${preview.eyebrow}</span>
         <h1>${preview.title}</h1>
         <p>${preview.subtitle}</p>
       </header>
@@ -88,6 +116,9 @@ function createCode(preview) {
         <h2>${preview.cardTitle}</h2>
         <p>${preview.cardMeta}</p>
         <button>${preview.button}</button>
+      </section>
+      <section className="features">
+        ${preview.features.map((feature) => `<article><h3>${feature.title}</h3><p>${feature.detail}</p></article>`).join("\n        ")}
       </section>
     </main>
   );
@@ -115,6 +146,7 @@ export function createWorkspace(input, options = {}) {
     updatedAt: now,
     published: false,
     publishedAt: null,
+    modelSource: "local-fallback",
     preview,
     code: createCode(preview),
     plan: createPlan(prompt),
@@ -193,6 +225,30 @@ export function updatePreview(workspace, patch, now = new Date().toISOString()) 
     updatedAt: now,
     published: false,
     logs: [...workspace.logs, { level: "info", text: "Visual edit applied to preview", time: "now" }]
+  };
+}
+
+export function applyModelPlan(workspace, modelResult, model = "deepseek-v4-flash", now = new Date().toISOString()) {
+  const preview = { ...workspace.preview, ...modelResult.preview };
+  return {
+    ...workspace,
+    plan: modelResult.plan,
+    preview,
+    code: createCode(preview),
+    modelSource: model,
+    updatedAt: now,
+    messages: [
+      ...workspace.messages,
+      {
+        id: uniqueId("msg"),
+        role: "agent",
+        agent: "mike",
+        text: modelResult.assistantMessage,
+        time: now,
+        model
+      }
+    ],
+    logs: [...workspace.logs, { level: "success", text: `${model} generated the product plan`, time: "now" }]
   };
 }
 

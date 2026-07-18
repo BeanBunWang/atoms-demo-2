@@ -1,11 +1,11 @@
 import { createDemoWorkspace } from "./planner.js";
 
-export const STORAGE_KEY = "atoms-demo-workspace-v2";
+export const STORAGE_KEY = "atoms-demo-workspace-v3";
 
 export function initialState() {
   const workspace = createDemoWorkspace();
   return {
-    version: 2,
+    version: 3,
     activeWorkspaceId: workspace.id,
     activePanel: "preview",
     activeRail: "terminal",
@@ -19,7 +19,7 @@ export function initialState() {
 export function isValidState(value) {
   return Boolean(
     value &&
-      value.version === 2 &&
+      value.version === 3 &&
       typeof value.activeWorkspaceId === "string" &&
       Array.isArray(value.workspaces) &&
       value.workspaces.length > 0 &&

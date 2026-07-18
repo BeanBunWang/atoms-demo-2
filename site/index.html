@@ -9,12 +9,12 @@
     <link rel="icon" href="./assets/atoms-mark.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="./favicon.ico" type="image/png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=4" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
     <div class="demo-banner">
-      <span><b>Atoms-like Demo</b> · 本地规则引擎，不调用真实模型</span>
+      <span><b>Atoms-like Demo</b> · <i id="model-status">正在检测 DeepSeek…</i></span>
       <a href="https://github.com/BeanBunWang/atoms-demo" target="_blank" rel="noreferrer">查看源码 ↗</a>
     </div>
 
@@ -69,7 +69,7 @@
         <main class="builder" id="main-content">
           <section class="conversation-panel" id="conversation-panel" aria-label="智能体对话">
             <header class="panel-titlebar">
-              <div><strong>Build with Atoms</strong><span id="mode-label">Team mode</span></div>
+              <div><strong>Build with Atoms</strong><span><b id="mode-label">Team mode</b> · <i id="model-label">Checking AI</i></span></div>
               <button class="icon-button" id="restart-button" type="button" aria-label="新建工作区">＋</button>
             </header>
 
@@ -118,18 +118,18 @@
             <div class="viewer-canvas" id="viewer-canvas">
               <div class="app-frame desktop" id="app-frame">
                 <div class="generated-app" id="generated-app">
-                  <header class="generated-nav"><a href="#"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></a><nav><a href="#discover">发现</a><a href="#saved">收藏</a><button id="preview-avatar">TW</button></nav></header>
+                  <header class="generated-nav"><a href="#"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></a><nav><a id="preview-nav-primary" href="#primary">发现</a><a id="preview-nav-secondary" href="#secondary">收藏</a><button id="preview-avatar">TW</button></nav></header>
                   <main class="generated-main">
                     <section class="generated-hero editable-target" data-edit-target="hero">
-                      <p>MAKE SPACE FOR THE WEEKEND</p>
+                      <p id="preview-eyebrow">MAKE SPACE FOR THE WEEKEND</p>
                       <h2 id="preview-title">周末漫游</h2>
                       <span id="preview-subtitle">收藏灵感，生成一条真正松弛的周末路线。</span>
                     </section>
                     <section class="route-card editable-target" data-edit-target="card">
-                      <div class="route-visual"><span>09:30</span><i></i><span>16:40</span><b>3 stops</b></div>
+                      <div class="route-visual"><span id="preview-visual-start">09:30</span><i></i><span id="preview-visual-end">16:40</span><b id="preview-visual-label">3 stops</b></div>
                       <div class="route-copy"><small>TODAY'S PICK</small><h3 id="preview-card-title">本周精选路线</h3><p id="preview-card-meta">3 个地点 · 4.2 km</p><button id="preview-cta">生成我的路线 <span>→</span></button></div>
                     </section>
-                    <section class="mini-grid"><article><span>01</span><h4>慢一点出发</h4><p>不早起，也不错过城市醒来的时刻。</p></article><article><span>02</span><h4>只选三站</h4><p>留出足够空白，让偶遇真的发生。</p></article><article><span>03</span><h4>保存灵感</h4><p>把喜欢的地方变成下一次出发。</p></article></section>
+                    <section class="mini-grid" id="preview-features"><article><span>01</span><h4>慢一点出发</h4><p>不早起，也不错过城市醒来的时刻。</p></article><article><span>02</span><h4>只选三站</h4><p>留出足够空白，让偶遇真的发生。</p></article><article><span>03</span><h4>保存灵感</h4><p>把喜欢的地方变成下一次出发。</p></article></section>
                   </main>
                 </div>
               </div>
@@ -146,7 +146,7 @@
             <section class="agent-progress" id="agent-progress" aria-label="智能体进度"></section>
             <section class="terminal" id="terminal"></section>
             <section class="file-tree" id="file-tree" hidden></section>
-            <footer class="activity-footer"><span><i></i> Local runtime</span><span id="build-progress">100%</span></footer>
+            <footer class="activity-footer"><span><i></i> <b id="runtime-status">Local runtime</b></span><span id="build-progress">100%</span></footer>
           </aside>
         </main>
       </div>
@@ -180,6 +180,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="./js/app.js"></script>
+    <script type="module" src="./js/app.js?v=4"></script>
   </body>
 </html>

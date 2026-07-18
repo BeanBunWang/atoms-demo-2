@@ -1,6 +1,7 @@
 import {
   AGENTS,
   MODES,
+  applyModelPlan,
   approvePlan,
   buildProgress,
   changeMode,
@@ -16,6 +17,7 @@ import { initialState, loadState, saveState } from "./storage.js";
 let state = loadState();
 let buildTimer = null;
 let toastTimer = null;
+let modelCapability = { realModel: false, model: "local-fallback", checked: false };
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -32,17 +34,26 @@ const elements = {
   promptInput: $("#prompt-input"),
   sendButton: $("#send-button"),
   modeLabel: $("#mode-label"),
+  modelLabel: $("#model-label"),
+  modelStatus: $("#model-status"),
   modeButtonLabel: $("#mode-button-label"),
   modeMenu: $("#mode-menu"),
   appFrame: $("#app-frame"),
   generatedApp: $("#generated-app"),
   previewBrand: $("#preview-brand"),
   previewLogo: $("#preview-logo"),
+  previewEyebrow: $("#preview-eyebrow"),
+  previewNavPrimary: $("#preview-nav-primary"),
+  previewNavSecondary: $("#preview-nav-secondary"),
   previewTitle: $("#preview-title"),
   previewSubtitle: $("#preview-subtitle"),
   previewCardTitle: $("#preview-card-title"),
   previewCardMeta: $("#preview-card-meta"),
   previewCta: $("#preview-cta"),
+  previewVisualStart: $("#preview-visual-start"),
+  previewVisualEnd: $("#preview-visual-end"),
+  previewVisualLabel: $("#preview-visual-label"),
+  previewFeatures: $("#preview-features"),
   codeView: $("#code-view"),
   codeContent: $("#code-content"),
   agentProgress: $("#agent-progress"),
@@ -50,9 +61,11 @@ const elements = {
   fileTree: $("#file-tree"),
   fileCount: $("#file-count"),
   buildProgress: $("#build-progress"),
+  runtimeStatus: $("#runtime-status"),
   designButton: $("#design-button"),
   designHint: $("#design-hint"),
   publishButton: $("#publish-button"),
+  approvePlanButton: $("#approve-plan-button"),
   conversationPanel: $("#conversation-panel"),
   mobileViewToggle: $("#mobile-view-toggle"),
   newProjectDialog: $("#new-project-dialog"),
@@ -119,6 +132,9 @@ function renderHeader(workspace) {
   elements.workspaceStatus.textContent = phaseLabel(workspace);
   elements.workspaceStatus.style.color = workspace.phase === "building" ? "var(--blue)" : "";
   elements.modeLabel.textContent = `${MODES[workspace.mode].label} mode`;
+  const usedRealModel = workspace.modelSource && workspace.modelSource !== "local-fallback";
+  elements.modelLabel.textContent = usedRealModel ? workspace.modelSource : modelCapability.realModel ? modelCapability.model : "Local fallback";
+  elements.modelLabel.classList.toggle("connected", usedRealModel || modelCapability.realModel);
   elements.modeButtonLabel.textContent = MODES[workspace.mode].label;
   elements.publishButton.disabled = workspace.phase !== "ready";
   elements.publishButton.innerHTML = workspace.published ? "Published <span>✓</span>" : "Publish <span>↗</span>";
@@ -156,11 +172,21 @@ function renderPreview(workspace) {
   elements.generatedApp.style.setProperty("--preview-accent", preview.accent);
   elements.previewBrand.textContent = preview.title;
   elements.previewLogo.textContent = preview.title.slice(0, 1).toUpperCase();
+  elements.previewEyebrow.textContent = preview.eyebrow;
+  elements.previewNavPrimary.textContent = preview.navItems[0];
+  elements.previewNavSecondary.textContent = preview.navItems[1];
   elements.previewTitle.textContent = preview.title;
   elements.previewSubtitle.textContent = preview.subtitle;
   elements.previewCardTitle.textContent = preview.cardTitle;
   elements.previewCardMeta.textContent = preview.cardMeta;
   elements.previewCta.innerHTML = `${escapeHTML(preview.button)} <span>→</span>`;
+  elements.previewVisualStart.textContent = preview.visualStart;
+  elements.previewVisualEnd.textContent = preview.visualEnd;
+  elements.previewVisualLabel.textContent = preview.visualLabel;
+  elements.previewFeatures.innerHTML = preview.features
+    .slice(0, 3)
+    .map((feature, index) => `<article><span>${String(index + 1).padStart(2, "0")}</span><h4>${escapeHTML(feature.title)}</h4><p>${escapeHTML(feature.detail)}</p></article>`)
+    .join("");
   elements.codeContent.textContent = workspace.code;
   elements.appFrame.className = `app-frame ${state.device}`;
   elements.generatedApp.classList.toggle("design-active", state.designMode);
@@ -183,6 +209,7 @@ function renderActivity(workspace) {
     .join("")}`;
   elements.fileCount.textContent = workspace.files.length;
   elements.buildProgress.textContent = `${buildProgress(workspace)}%`;
+  elements.runtimeStatus.textContent = modelCapability.realModel ? modelCapability.model : "Local fallback";
   const useFiles = state.activeRail === "files";
   elements.terminal.hidden = useFiles;
   elements.fileTree.hidden = !useFiles;
@@ -220,6 +247,70 @@ function syncComposerState() {
   elements.promptInput.classList.toggle("has-value", hasValue);
   elements.promptInput.dataset.empty = String(!hasValue);
   elements.sendButton.disabled = !hasValue;
+}
+
+function renderModelCapability() {
+  elements.modelStatus.textContent = modelCapability.realModel
+    ? `${modelCapability.model} 已连接`
+    : modelCapability.checked
+      ? "未连接服务端，使用本地降级"
+      : "正在检测 DeepSeek…";
+  elements.modelStatus.classList.toggle("connected", modelCapability.realModel);
+}
+
+async function detectModelCapability() {
+  try {
+    const response = await fetch("./api/health", { cache: "no-store", headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error("Model proxy unavailable");
+    const payload = await response.json();
+    modelCapability = { realModel: Boolean(payload.realModel), model: payload.model || "deepseek-v4-flash", checked: true };
+  } catch {
+    modelCapability = { realModel: false, model: "local-fallback", checked: true };
+  }
+  renderModelCapability();
+  renderHeader(activeWorkspace());
+  renderActivity(activeWorkspace());
+}
+
+function setModelPlanning(active) {
+  elements.planCard.classList.toggle("model-loading", active);
+  elements.approvePlanButton.disabled = active;
+  elements.approvePlanButton.textContent = active ? "DeepSeek is planning…" : "Approve & build";
+}
+
+async function hydratePlanWithModel(workspace, prompt) {
+  if (!modelCapability.realModel) return false;
+  const requestVersion = workspace.updatedAt;
+  setModelPlanning(true);
+  try {
+    const response = await fetch("./api/agent/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ prompt, context: { preview: workspace.preview, mode: workspace.mode } })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "DeepSeek 暂时不可用");
+    const current = state.workspaces.find((item) => item.id === workspace.id);
+    if (!current || current.phase !== "plan-review" || current.prompt !== prompt || current.updatedAt !== requestVersion) return false;
+    replaceWorkspace(applyModelPlan(current, payload.result, payload.model));
+    render();
+    showToast(`${payload.model} 已生成真实产品计划`);
+    return true;
+  } catch (error) {
+    const current = state.workspaces.find((item) => item.id === workspace.id);
+    if (current) {
+      replaceWorkspace({
+        ...current,
+        modelSource: "local-fallback",
+        logs: [...current.logs, { level: "error", text: `Model fallback: ${error.message}`, time: "now" }]
+      });
+      render();
+    }
+    showToast(`DeepSeek 请求失败，已保留本地计划：${error.message}`);
+    return false;
+  } finally {
+    setModelPlanning(false);
+  }
 }
 
 function startBuildLoop(workspaceId = activeWorkspace().id) {
@@ -279,14 +370,14 @@ function standalonePreview(workspace) {
 }
 
 elements.promptInput.addEventListener("input", syncComposerState);
-$("#composer-form").addEventListener("submit", (event) => {
+$("#composer-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (isComposerEmpty(elements.promptInput.value)) return;
   const updated = submitPrompt(activeWorkspace(), elements.promptInput.value);
   replaceWorkspace(updated);
   elements.promptInput.value = "";
   render();
-  showToast("Mike 已生成变更计划");
+  if (!(await hydratePlanWithModel(updated, updated.prompt))) showToast("Mike 已生成本地变更计划");
 });
 
 $("#approve-plan-button").addEventListener("click", () => {
@@ -329,7 +420,7 @@ elements.projectList.addEventListener("click", (event) => {
 
 $("#new-project-button").addEventListener("click", showNewProjectDialog);
 $("#restart-button").addEventListener("click", showNewProjectDialog);
-elements.newProjectForm.addEventListener("submit", (event) => {
+elements.newProjectForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(elements.newProjectForm);
   const workspace = createWorkspace({ title: data.get("title"), prompt: data.get("prompt"), mode: data.get("mode") });
@@ -339,7 +430,7 @@ elements.newProjectForm.addEventListener("submit", (event) => {
   persist();
   elements.newProjectDialog.close();
   render();
-  showToast("计划已生成，请确认后开始构建");
+  if (!(await hydratePlanWithModel(workspace, workspace.prompt))) showToast("计划已生成，请确认后开始构建");
 });
 
 $$('[data-close-dialog]').forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
@@ -446,11 +537,23 @@ document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !elements.sendButton.disabled) $("#composer-form").requestSubmit();
 });
 
-if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", async () => {
+    const localDevelopment = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
+    if (localDevelopment) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+      return;
+    }
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
 
 render();
+renderModelCapability();
 $$('[data-panel]').forEach((item) => item.classList.toggle("active", item.dataset.panel === state.activePanel));
 elements.appFrame.hidden = state.activePanel !== "preview";
 elements.codeView.hidden = state.activePanel !== "code";
 $$('[data-device]').forEach((item) => item.classList.toggle("active", item.dataset.device === state.device));
 if (activeWorkspace().phase === "building") startBuildLoop(activeWorkspace().id);
+detectModelCapability();
