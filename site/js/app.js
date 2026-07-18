@@ -11,8 +11,8 @@ import {
   publishWorkspace,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=4";
-import { initialState, loadState, saveState } from "./storage.js?v=4";
+} from "./planner.js?v=5";
+import { initialState, loadState, saveState } from "./storage.js?v=5";
 
 let state = loadState();
 let buildTimer = null;
