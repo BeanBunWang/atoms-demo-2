@@ -2,6 +2,7 @@ import http from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runAgentRuntime } from "./agent/runtime.mjs";
 
 const PROJECT_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const SITE_ROOT = path.join(PROJECT_ROOT, "site");
@@ -158,6 +159,37 @@ export async function requestDeepSeekPlan({ prompt, context, env, fetchImpl = fe
   }
 }
 
+function parseJsonContent(content) {
+  const cleaned = String(content || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  return JSON.parse(cleaned);
+}
+
+export async function requestDeepSeekJson({ messages, env, fetchImpl = fetch, maxTokens = 2200 }) {
+  const apiKey = env.DEEPSEEK_API_KEY?.trim();
+  if (!apiKey) throw new Error("DEEPSEEK_API_KEY 未配置");
+  const baseUrl = (env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com").replace(/\/+$/, "");
+  const model = resolveModel(env);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const response = await fetchImpl(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: messages.system }, { role: "user", content: messages.user }],
+        thinking: { type: "disabled" }, response_format: { type: "json_object" }, max_tokens: maxTokens, stream: false
+      }),
+      signal: controller.signal
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error?.message || `DeepSeek 请求失败 (${response.status})`);
+    return parseJsonContent(payload.choices?.[0]?.message?.content);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
@@ -216,6 +248,31 @@ export function createAppServer({ env, fetchImpl = fetch } = {}) {
         if (!prompt) return sendJson(response, 400, { error: "请输入应用需求" });
         const completion = await requestDeepSeekPlan({ prompt, context: body.context, env: runtimeEnv, fetchImpl });
         return sendJson(response, 200, completion);
+      }
+      if (request.method === "POST" && url.pathname === "/api/agent/run") {
+        const body = await readJsonBody(request);
+        const prompt = cleanText(body.prompt, "", 800);
+        if (!prompt) return sendJson(response, 400, { error: "请输入应用需求" });
+        response.writeHead(200, {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+          "X-Accel-Buffering": "no"
+        });
+        const emit = (event) => response.write(`${JSON.stringify(event)}\n`);
+        try {
+          await runAgentRuntime({
+            stage: body.stage === "build" ? "build" : "plan",
+            prompt,
+            context: body.context && typeof body.context === "object" ? body.context : {},
+            capabilities: body.capabilities && typeof body.capabilities === "object" ? body.capabilities : {},
+            complete: (messages) => requestDeepSeekJson({ messages, env: runtimeEnv, fetchImpl }),
+            emit
+          });
+        } catch (error) {
+          emit({ type: "run.failed", at: new Date().toISOString(), message: error.name === "AbortError" ? "DeepSeek 响应超时" : error.message || "Agent runtime 失败" });
+        }
+        return response.end();
       }
       if (request.method === "GET" || request.method === "HEAD") return serveStatic(url.pathname, response);
       return sendJson(response, 405, { error: "Method not allowed" });

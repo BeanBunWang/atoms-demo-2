@@ -2,7 +2,10 @@ import {
   AGENTS,
   MODES,
   applyModelPlan,
+  applyRuntimeEvent,
+  applyRuntimeResult,
   approvePlan,
+  beginAgentRun,
   buildProgress,
   changeMode,
   createWorkspace,
@@ -11,8 +14,8 @@ import {
   publishWorkspace,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=5";
-import { initialState, loadState, saveState } from "./storage.js?v=5";
+} from "./planner.js?v=6";
+import { initialState, loadState, saveState } from "./storage.js?v=6";
 
 let state = loadState();
 let buildTimer = null;
@@ -31,6 +34,7 @@ const elements = {
   messageStream: $("#message-stream"),
   planCard: $("#plan-card"),
   planList: $("#plan-list"),
+  planStepCount: $("#plan-step-count"),
   promptInput: $("#prompt-input"),
   sendButton: $("#send-button"),
   modeLabel: $("#mode-label"),
@@ -47,13 +51,11 @@ const elements = {
   previewNavSecondary: $("#preview-nav-secondary"),
   previewTitle: $("#preview-title"),
   previewSubtitle: $("#preview-subtitle"),
-  previewCardTitle: $("#preview-card-title"),
-  previewCardMeta: $("#preview-card-meta"),
-  previewCta: $("#preview-cta"),
-  previewVisualStart: $("#preview-visual-start"),
-  previewVisualEnd: $("#preview-visual-end"),
-  previewVisualLabel: $("#preview-visual-label"),
-  previewFeatures: $("#preview-features"),
+  previewPrimaryAction: $("#preview-primary-action"),
+  previewMetricValue: $("#preview-metric-value"),
+  previewMetricLabel: $("#preview-metric-label"),
+  previewMetricTrend: $("#preview-metric-trend"),
+  previewSections: $("#preview-sections"),
   codeView: $("#code-view"),
   codeContent: $("#code-content"),
   agentProgress: $("#agent-progress"),
@@ -79,6 +81,10 @@ const elements = {
   confirmPublishButton: $("#confirm-publish-button"),
   toast: $("#toast")
 };
+elements.capabilityMenu = $("#capability-menu");
+elements.attachmentInput = $("#attachment-input");
+elements.attachmentSummary = $("#attachment-summary");
+elements.connectorSummary = $("#connector-summary");
 
 function activeWorkspace() {
   return state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId) || state.workspaces[0];
@@ -111,7 +117,7 @@ function showToast(message) {
 
 function phaseLabel(workspace) {
   if (workspace.published) return "Published";
-  return { "plan-review": "Plan review", building: "Building", ready: "Ready" }[workspace.phase] || "Draft";
+  return { planning: "Understanding", "plan-review": "Plan review", building: "Running", ready: "Ready" }[workspace.phase] || "Draft";
 }
 
 function renderProjects() {
@@ -162,6 +168,7 @@ function renderMessages(workspace) {
   if (nearBottom) elements.messageStream.scrollTop = elements.messageStream.scrollHeight;
 
   elements.planCard.hidden = workspace.phase !== "plan-review";
+  elements.planStepCount.textContent = `${workspace.plan.length} steps`;
   elements.planList.innerHTML = workspace.plan
     .map((step, index) => `<div class="plan-step"><span>${index + 1}</span><div><strong>${escapeHTML(step.title)}</strong><p>${escapeHTML(step.detail)}</p></div></div>`)
     .join("");
@@ -170,28 +177,36 @@ function renderMessages(workspace) {
 function renderPreview(workspace) {
   const preview = workspace.preview;
   elements.generatedApp.style.setProperty("--preview-accent", preview.accent);
+  elements.generatedApp.style.setProperty("--preview-bg", preview.background || "#fffdf9");
+  elements.generatedApp.dataset.template = preview.template || "landing";
   elements.previewBrand.textContent = preview.title;
   elements.previewLogo.textContent = preview.title.slice(0, 1).toUpperCase();
   elements.previewEyebrow.textContent = preview.eyebrow;
-  elements.previewNavPrimary.textContent = preview.navItems[0];
-  elements.previewNavSecondary.textContent = preview.navItems[1];
+  elements.previewNavPrimary.textContent = preview.navItems?.[0] || "概览";
+  elements.previewNavSecondary.textContent = preview.navItems?.[1] || "记录";
   elements.previewTitle.textContent = preview.title;
   elements.previewSubtitle.textContent = preview.subtitle;
-  elements.previewCardTitle.textContent = preview.cardTitle;
-  elements.previewCardMeta.textContent = preview.cardMeta;
-  elements.previewCta.innerHTML = `${escapeHTML(preview.button)} <span>→</span>`;
-  elements.previewVisualStart.textContent = preview.visualStart;
-  elements.previewVisualEnd.textContent = preview.visualEnd;
-  elements.previewVisualLabel.textContent = preview.visualLabel;
-  elements.previewFeatures.innerHTML = preview.features
-    .slice(0, 3)
-    .map((feature, index) => `<article><span>${String(index + 1).padStart(2, "0")}</span><h4>${escapeHTML(feature.title)}</h4><p>${escapeHTML(feature.detail)}</p></article>`)
-    .join("");
+  const action = preview.primaryAction || preview.button || "开始体验";
+  const metric = preview.heroMetric || { value: preview.visualEnd || "01", label: preview.cardTitle || "当前重点", trend: preview.visualLabel || "已准备" };
+  elements.previewPrimaryAction.textContent = action;
+  elements.previewMetricValue.textContent = metric.value;
+  elements.previewMetricLabel.textContent = metric.label;
+  elements.previewMetricTrend.textContent = metric.trend;
+  const sections = preview.sections || [
+    { type: "cards", title: preview.cardTitle || "核心功能", description: preview.cardMeta || "第一版体验已就绪", items: (preview.features || []).map((feature) => ({ title: feature.title, meta: feature.detail, value: "", status: "可用" })), metrics: [] }
+  ];
+  elements.previewSections.innerHTML = sections.map(renderPreviewSection).join("");
   elements.codeContent.textContent = workspace.code;
   elements.appFrame.className = `app-frame ${state.device}`;
   elements.generatedApp.classList.toggle("design-active", state.designMode);
   elements.designButton.classList.toggle("active", state.designMode);
   elements.designHint.hidden = !state.designMode;
+}
+
+function renderPreviewSection(section, sectionIndex) {
+  const metrics = (section.metrics || []).map((metric) => `<div class="metric-tile"><span>${escapeHTML(metric.label)}</span><b>${escapeHTML(metric.value)}</b><small>${escapeHTML(metric.trend)}</small></div>`).join("");
+  const items = (section.items || []).map((item, index) => `<article class="preview-item"><span class="item-index">${String(index + 1).padStart(2, "0")}</span><div><b>${escapeHTML(item.title)}</b><p>${escapeHTML(item.meta)}</p></div><aside><strong>${escapeHTML(item.value)}</strong><small>${escapeHTML(item.status)}</small></aside></article>`).join("");
+  return `<section class="preview-module module-${escapeHTML(section.type)} editable-target" data-edit-target="section-${sectionIndex}"><header><div><small>${escapeHTML(section.type)}</small><h3>${escapeHTML(section.title)}</h3></div><p>${escapeHTML(section.description)}</p></header>${metrics ? `<div class="metric-grid">${metrics}</div>` : ""}<div class="module-items">${items}</div></section>`;
 }
 
 function renderActivity(workspace) {
@@ -209,7 +224,7 @@ function renderActivity(workspace) {
     .join("")}`;
   elements.fileCount.textContent = workspace.files.length;
   elements.buildProgress.textContent = `${buildProgress(workspace)}%`;
-  elements.runtimeStatus.textContent = modelCapability.realModel ? modelCapability.model : "Local fallback";
+  elements.runtimeStatus.textContent = workspace.runtime?.status === "running" ? `${workspace.runtime.phase} · live` : modelCapability.realModel ? modelCapability.model : "Local fallback";
   const useFiles = state.activeRail === "files";
   elements.terminal.hidden = useFiles;
   elements.fileTree.hidden = !useFiles;
@@ -230,6 +245,15 @@ function renderModeMenus(workspace) {
     .join("");
 }
 
+function renderCapabilities(workspace) {
+  const capabilities = workspace.capabilities || {};
+  $$('[data-capability]').forEach((input) => { input.checked = Boolean(capabilities[input.dataset.capability]); });
+  const attachments = capabilities.attachments || [];
+  const connectors = capabilities.connectors || [];
+  elements.attachmentSummary.textContent = attachments.length ? `${attachments.length} 个文件已加入上下文` : "添加文本上下文";
+  elements.connectorSummary.textContent = connectors.length ? `${connectors.join("、")}（演示上下文）` : "选择上下文来源";
+}
+
 function render() {
   const workspace = activeWorkspace();
   if (!workspace) return;
@@ -239,6 +263,7 @@ function render() {
   renderPreview(workspace);
   renderActivity(workspace);
   renderModeMenus(workspace);
+  renderCapabilities(workspace);
   syncComposerState();
 }
 
@@ -313,6 +338,58 @@ async function hydratePlanWithModel(workspace, prompt) {
   }
 }
 
+async function runLiveAgent(workspace, stage) {
+  if (!modelCapability.realModel) return false;
+  const started = beginAgentRun(workspace, stage);
+  replaceWorkspace(started);
+  render();
+  try {
+    const response = await fetch("./api/agent/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
+      body: JSON.stringify({
+        stage,
+        prompt: started.prompt,
+        capabilities: started.capabilities,
+        context: { intent: started.intent, plan: started.runtimePlan, preview: started.preview, hasExistingApp: started.messages.filter((message) => message.role === "user").length > 1 }
+      })
+    });
+    if (!response.ok || !response.body) throw new Error("Agent runtime 不可用");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let failed = null;
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        const current = state.workspaces.find((item) => item.id === workspace.id);
+        if (!current) continue;
+        if (event.type === "run.failed") failed = new Error(event.message);
+        const next = event.type === "run.completed" ? applyRuntimeResult(current, event, modelCapability.model) : applyRuntimeEvent(current, event);
+        replaceWorkspace(next);
+        if (state.activeWorkspaceId === workspace.id) render();
+      }
+      if (done) break;
+    }
+    if (failed) throw failed;
+    showToast(stage === "plan" ? "意图识别与动态计划已完成" : "Agent runtime 已完成构建与验证");
+    return true;
+  } catch (error) {
+    const current = state.workspaces.find((item) => item.id === workspace.id);
+    if (current) {
+      replaceWorkspace({ ...current, phase: stage === "build" ? "plan-review" : "draft", runtime: { ...current.runtime, status: "failed" }, logs: [...current.logs, { level: "error", text: error.message, time: "now" }] });
+      render();
+    }
+    showToast(`Agent runtime 失败：${error.message}`);
+    return false;
+  }
+}
+
 function startBuildLoop(workspaceId = activeWorkspace().id) {
   clearInterval(buildTimer);
   buildTimer = setInterval(() => {
@@ -357,7 +434,7 @@ function openPublishDialog() {
   elements.publishDialogTitle.textContent = workspace.published ? "Preview is live" : "Ready to publish";
   elements.publishSummary.innerHTML = `
     <div class="publish-row"><span>Build</span><b>${buildProgress(workspace)}% complete</b></div>
-    <div class="publish-row"><span>Runtime</span><b>Static local demo</b></div>
+    <div class="publish-row"><span>Runtime</span><b>${escapeHTML(workspace.modelSource === "local-fallback" ? "Local fallback" : workspace.modelSource)}</b></div>
     <div class="publish-row"><span>Target</span><b>Simulated preview URL</b></div>`;
   elements.confirmPublishButton.textContent = workspace.published ? "Publish again" : "Publish demo preview";
   elements.confirmPublishButton.disabled = workspace.phase !== "ready";
@@ -366,7 +443,9 @@ function openPublishDialog() {
 
 function standalonePreview(workspace) {
   const p = workspace.preview;
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(p.title)}</title><style>body{margin:0;background:#fffdf9;color:#222;font-family:system-ui}main{max-width:760px;margin:auto;padding:10vh 24px}small{color:${escapeHTML(p.accent)};font-weight:800;letter-spacing:.15em}h1{font:500 clamp(48px,9vw,88px)/.95 Georgia;margin:16px 0}p{max-width:520px;color:#777;line-height:1.7}.card{margin-top:52px;padding:38px;border:1px solid #e7ded4;background:#fff}button{margin-top:20px;padding:12px 18px;border:0;background:${escapeHTML(p.accent)};color:white}</style><main><small>ATOM DEMO PREVIEW</small><h1>${escapeHTML(p.title)}</h1><p>${escapeHTML(p.subtitle)}</p><div class="card"><h2>${escapeHTML(p.cardTitle)}</h2><p>${escapeHTML(p.cardMeta)}</p><button>${escapeHTML(p.button)} →</button></div></main>`;
+  const first = p.sections?.[0] || { title: p.cardTitle || "核心功能", description: p.cardMeta || "第一版已就绪", items: [] };
+  const items = (first.items || []).map((item) => `<li><b>${escapeHTML(item.title)}</b><span>${escapeHTML(item.meta)}</span></li>`).join("");
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(p.title)}</title><style>body{margin:0;background:${escapeHTML(p.background || "#fffdf9")};color:#222;font-family:system-ui}main{max-width:760px;margin:auto;padding:10vh 24px}small{color:${escapeHTML(p.accent)};font-weight:800;letter-spacing:.15em}h1{font:500 clamp(48px,9vw,88px)/.95 Georgia;margin:16px 0}p{max-width:520px;color:#777;line-height:1.7}.card{margin-top:52px;padding:38px;border:1px solid #e7ded4;background:#fff}button{margin-top:20px;padding:12px 18px;border:0;background:${escapeHTML(p.accent)};color:white}ul{padding:0;list-style:none}li{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid #eee}li span{color:#777}</style><main><small>${escapeHTML(p.eyebrow || "ATOM DEMO PREVIEW")}</small><h1>${escapeHTML(p.title)}</h1><p>${escapeHTML(p.subtitle)}</p><button>${escapeHTML(p.primaryAction || p.button || "开始体验")} →</button><div class="card"><h2>${escapeHTML(first.title)}</h2><p>${escapeHTML(first.description)}</p><ul>${items}</ul></div></main>`;
 }
 
 elements.promptInput.addEventListener("input", syncComposerState);
@@ -377,11 +456,16 @@ $("#composer-form").addEventListener("submit", async (event) => {
   replaceWorkspace(updated);
   elements.promptInput.value = "";
   render();
-  if (!(await hydratePlanWithModel(updated, updated.prompt))) showToast("Mike 已生成本地变更计划");
+  if (!(await runLiveAgent(updated, "plan")) && !(await hydratePlanWithModel(updated, updated.prompt))) showToast("Mike 已生成本地变更计划");
 });
 
-$("#approve-plan-button").addEventListener("click", () => {
-  const workspace = approvePlan(activeWorkspace());
+$("#approve-plan-button").addEventListener("click", async () => {
+  const current = activeWorkspace();
+  if (modelCapability.realModel && current.runtimePlan && current.intent) {
+    await runLiveAgent(current, "build");
+    return;
+  }
+  const workspace = approvePlan(current);
   replaceWorkspace(workspace);
   render();
   startBuildLoop();
@@ -396,14 +480,16 @@ $("#revise-plan-button").addEventListener("click", () => {
 $("#mode-button").addEventListener("click", () => {
   elements.modeMenu.hidden = !elements.modeMenu.hidden;
 });
-elements.modeMenu.addEventListener("click", (event) => {
+elements.modeMenu.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-mode]");
   if (!button) return;
-  const updated = changeMode(activeWorkspace(), button.dataset.mode);
+  const current = activeWorkspace();
+  if (current.phase === "building") return showToast("运行中不能切换模式");
+  const updated = changeMode(current, button.dataset.mode);
   replaceWorkspace(updated);
   elements.modeMenu.hidden = true;
   render();
-  showToast(`已切换到 ${MODES[button.dataset.mode].label} mode`);
+  if (!(await runLiveAgent(updated, "plan"))) showToast(`已切换到 ${MODES[button.dataset.mode].label} mode`);
 });
 
 elements.projectList.addEventListener("click", (event) => {
@@ -430,7 +516,7 @@ elements.newProjectForm.addEventListener("submit", async (event) => {
   persist();
   elements.newProjectDialog.close();
   render();
-  if (!(await hydratePlanWithModel(workspace, workspace.prompt))) showToast("计划已生成，请确认后开始构建");
+  if (!(await runLiveAgent(workspace, "plan")) && !(await hydratePlanWithModel(workspace, workspace.prompt))) showToast("计划已生成，请确认后开始构建");
 });
 
 $$('[data-close-dialog]').forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
@@ -495,7 +581,36 @@ $("#share-button").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(location.href); showToast("当前地址已复制"); }
   catch { showToast("请从浏览器地址栏复制当前地址"); }
 });
-$("#attachment-button").addEventListener("click", () => showToast("静态 Demo 暂不上传文件；生产版应接入安全文件存储"));
+$("#attachment-button").addEventListener("click", () => {
+  elements.capabilityMenu.hidden = !elements.capabilityMenu.hidden;
+  $("#attachment-button").setAttribute("aria-expanded", String(!elements.capabilityMenu.hidden));
+});
+elements.capabilityMenu.addEventListener("change", (event) => {
+  const input = event.target.closest("[data-capability]");
+  if (!input) return;
+  const workspace = activeWorkspace();
+  replaceWorkspace({ ...workspace, capabilities: { ...workspace.capabilities, [input.dataset.capability]: input.checked } });
+  if (input.dataset.capability === "deepResearch" && input.checked) showToast("Deep Research 已启用，Iris 将参与意图相关任务");
+});
+elements.capabilityMenu.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-capability-action]")?.dataset.capabilityAction;
+  if (action === "attachment") elements.attachmentInput.click();
+  if (action === "connectors") {
+    const workspace = activeWorkspace();
+    const connectors = workspace.capabilities?.connectors?.length ? [] : ["GitHub"];
+    replaceWorkspace({ ...workspace, capabilities: { ...workspace.capabilities, connectors } });
+    elements.connectorSummary.textContent = connectors.length ? "GitHub（演示上下文）" : "选择上下文来源";
+    showToast(connectors.length ? "已添加 GitHub 演示上下文；不会访问私人仓库" : "已移除连接器上下文");
+  }
+});
+elements.attachmentInput.addEventListener("change", async () => {
+  const files = [...elements.attachmentInput.files].slice(0, 3);
+  const attachments = await Promise.all(files.map(async (file) => ({ name: file.name, type: file.type || "text/plain", content: (await file.text()).slice(0, 4000) })));
+  const workspace = activeWorkspace();
+  replaceWorkspace({ ...workspace, capabilities: { ...workspace.capabilities, attachments } });
+  elements.attachmentSummary.textContent = attachments.length ? `${attachments.length} 个文件已加入上下文` : "添加文本上下文";
+  showToast(attachments.length ? "附件会参与意图识别与计划" : "未选择附件");
+});
 $$('[data-nav]').forEach((button) => button.addEventListener("click", () => {
   if (button.dataset.nav === "home") return showNewProjectDialog();
   if (button.dataset.nav === "resources") {
@@ -531,6 +646,7 @@ elements.sidebarScrim.addEventListener("click", () => {
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".mode-menu-wrap")) elements.modeMenu.hidden = true;
+  if (!event.target.closest(".capability-wrap")) elements.capabilityMenu.hidden = true;
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") elements.modeMenu.hidden = true;

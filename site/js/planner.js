@@ -147,6 +147,9 @@ export function createWorkspace(input, options = {}) {
     published: false,
     publishedAt: null,
     modelSource: "local-fallback",
+    intent: null,
+    runtime: { status: "idle", phase: "idle", events: [], verification: null, replans: 0 },
+    capabilities: input.capabilities || { teamMode: mode === "team", deepResearch: mode === "research", raceMode: mode === "race", attachments: [], connectors: [] },
     preview,
     code: createCode(preview),
     plan: createPlan(prompt),
@@ -158,9 +161,118 @@ export function createWorkspace(input, options = {}) {
     ],
     messages: [
       { id: uniqueId("msg"), role: "user", text: prompt, time: now },
-      { id: uniqueId("msg"), role: "agent", agent: "mike", text: "我已经把需求拆成 4 个可交付步骤。确认后，团队会开始构建应用。", time: now }
+      { id: uniqueId("msg"), role: "agent", agent: "mike", text: "我会先识别任务意图和约束，再安排必要专家生成可审批的执行计划。", time: now }
     ]
   };
+}
+
+function runtimeLog(event) {
+  const labels = {
+    "run.started": "Runtime started",
+    "phase.started": event.message,
+    "intent.classified": `Intent: ${event.intent?.type} · ${event.intent?.domain}`,
+    "plan.created": event.message,
+    "approval.required": "Approval gate reached",
+    "agent.started": `${event.agent} started: ${event.message}`,
+    "tool.called": `tool:${event.tool} · ${event.message}`,
+    "tool.completed": `tool:${event.tool} · ${event.message}`,
+    "artifact.generating": event.message,
+    "artifact.created": event.message,
+    "verification.started": event.message,
+    "verification.completed": event.message,
+    "replan.created": event.message,
+    "runtime.fallback": event.message,
+    "run.completed": `Runtime completed: ${event.status}`,
+    "run.failed": event.message
+  };
+  return { level: event.type === "run.failed" ? "error" : event.type.includes("completed") ? "success" : "info", text: labels[event.type] || event.message || event.type, time: "now", eventType: event.type };
+}
+
+function agentsFromPlan(plan, activeAgent = null, completedAgents = []) {
+  const keys = ["mike", ...plan.steps.map((step) => step.agent)].filter((key, index, all) => all.indexOf(key) === index);
+  return keys.map((key) => {
+    const agent = agentByKey(key);
+    const done = completedAgents.includes(key);
+    return { ...agent, status: done ? "done" : key === activeAgent ? "active" : "waiting", message: done ? "已完成并同步产物" : key === activeAgent ? agent.action : "等待依赖" };
+  });
+}
+
+export function beginAgentRun(workspace, stage, now = new Date().toISOString()) {
+  return {
+    ...workspace,
+    phase: stage === "build" ? "building" : "planning",
+    runtime: { ...(workspace.runtime || {}), status: "running", phase: stage === "build" ? "execution" : "intent", events: [], verification: null },
+    updatedAt: now,
+    published: false
+  };
+}
+
+export function applyRuntimeEvent(workspace, event, now = new Date().toISOString()) {
+  const runtime = workspace.runtime || { events: [] };
+  const events = [...(runtime.events || []), event].slice(-80);
+  const completedAgents = new Set(workspace.agents.filter((agent) => agent.status === "done").map((agent) => agent.key));
+  if (event.type === "tool.completed" && event.agent) completedAgents.add(event.agent);
+  const plan = event.plan || workspace.runtimePlan;
+  const agents = plan ? agentsFromPlan(plan, event.type === "agent.started" ? event.agent : null, [...completedAgents]) : workspace.agents;
+  let phase = workspace.phase;
+  if (event.type === "approval.required") phase = "plan-review";
+  if (event.type === "run.failed") phase = workspace.intent ? "plan-review" : "draft";
+  return {
+    ...workspace,
+    phase,
+    runtime: {
+      ...runtime,
+      status: event.type === "run.failed" ? "failed" : event.type === "run.completed" ? event.status : "running",
+      phase: event.phase || runtime.phase,
+      events,
+      verification: event.verification || runtime.verification,
+      replans: (runtime.replans || 0) + (event.type === "replan.created" ? 1 : 0)
+    },
+    intent: event.intent || workspace.intent,
+    runtimePlan: event.plan || workspace.runtimePlan,
+    plan: event.plan ? event.plan.steps.map((step) => ({ title: `${agentByKey(step.agent)?.name || step.agent} · ${step.title}`, detail: step.goal, tool: step.tool })) : workspace.plan,
+    agents,
+    logs: [...workspace.logs, runtimeLog(event)].slice(-100),
+    updatedAt: now
+  };
+}
+
+function filesFromArtifact(artifact) {
+  return artifact.files.map((file, index) => ({
+    path: file, type: file.split(".").pop() || "txt", status: index < 3 ? "modified" : "added", lines: 30 + index * 13, accent: artifact.preview.accent
+  }));
+}
+
+export function applyRuntimeResult(workspace, event, model = "deepseek-v4-flash", now = new Date().toISOString()) {
+  if (event.stage === "plan") {
+    const updated = applyRuntimeEvent(workspace, event, now);
+    return {
+      ...updated,
+      title: event.plan?.title || updated.title,
+      phase: "plan-review",
+      modelSource: model,
+      messages: [...updated.messages, { id: uniqueId("msg"), role: "agent", agent: "mike", text: `${event.plan.summary} 我按意图只安排了必要专家；批准后开始执行。`, time: now, model }]
+    };
+  }
+  const artifact = event.artifact;
+  if (!artifact) return applyRuntimeEvent(workspace, event, now);
+  const updated = applyRuntimeEvent(workspace, event, now);
+  return {
+    ...updated,
+    phase: "ready",
+    preview: artifact.preview,
+    code: createDynamicCode(artifact.preview),
+    files: filesFromArtifact(artifact),
+    decisions: artifact.decisions,
+    modelSource: model,
+    agents: updated.agents.map((agent) => ({ ...agent, status: "done", message: "已完成并同步产物" })),
+    messages: [...updated.messages, { id: uniqueId("msg"), role: "agent", agent: "mike", text: artifact.assistantMessage, time: now, model }]
+  };
+}
+
+function createDynamicCode(preview) {
+  const sections = preview.sections.map((section) => `        <Section type="${section.type}" title="${section.title}" items={${JSON.stringify(section.items)}} />`).join("\n");
+  return `// Generated by Atoms Demo Agent Runtime\nexport default function App() {\n  return (\n    <ProductShell accent="${preview.accent}" template="${preview.template}">\n      <Hero title="${preview.title}" subtitle="${preview.subtitle}" action="${preview.primaryAction}" />\n${sections}\n    </ProductShell>\n  );\n}`;
 }
 
 export function approvePlan(workspace, now = new Date().toISOString()) {
@@ -221,7 +333,7 @@ export function updatePreview(workspace, patch, now = new Date().toISOString()) 
   return {
     ...workspace,
     preview,
-    code: createCode(preview),
+    code: preview.sections ? createDynamicCode(preview) : createCode(preview),
     updatedAt: now,
     published: false,
     logs: [...workspace.logs, { level: "info", text: "Visual edit applied to preview", time: "now" }]
@@ -287,7 +399,18 @@ export function changeMode(workspace, mode, now = new Date().toISOString()) {
     status: index === 0 ? "done" : "waiting",
     message: index === 0 ? "计划已整理，等待你的确认" : "等待接力"
   }));
-  return { ...workspace, mode, agents, phase: "plan-review", published: false, updatedAt: now };
+  return {
+    ...workspace,
+    mode,
+    agents,
+    phase: "plan-review",
+    published: false,
+    intent: null,
+    runtimePlan: null,
+    capabilities: { ...(workspace.capabilities || {}), teamMode: mode === "team", deepResearch: mode === "research", raceMode: mode === "race" },
+    runtime: { status: "idle", phase: "idle", events: [], verification: null, replans: 0 },
+    updatedAt: now
+  };
 }
 
 export function publishWorkspace(workspace, now = new Date().toISOString()) {

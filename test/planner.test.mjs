@@ -90,11 +90,11 @@ test("本地状态可以安全加载与导入", () => {
   const imported = parseImportedState(JSON.stringify(state));
   assert.equal(isValidState(imported), true);
   assert.equal(imported.activeWorkspaceId, "workspace-demo");
-  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v3");
+  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v4");
   assert.throws(() => parseImportedState('{"version":1}'), /有效/);
 
   const brokenStorage = { getItem: () => "{broken" };
-  assert.equal(loadState(brokenStorage).version, 3);
+  assert.equal(loadState(brokenStorage).version, 4);
 });
 
 test("页面为 placeholder 提供显式输入态契约", async () => {

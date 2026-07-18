@@ -72,3 +72,29 @@ test("健康检查只暴露模型可用状态", async (t) => {
   assert.deepEqual(payload, { realModel: true, model: "deepseek-v4-flash" });
   assert.equal(JSON.stringify(payload).includes("hidden"), false);
 });
+
+test("Agent endpoint 以 NDJSON 输出意图、计划与审批事件", async (t) => {
+  const fakeFetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    const system = request.messages[0].content;
+    const content = system.includes("意图路由器")
+      ? { type: "build_app", goal: "构建宠物提醒", domain: "宠物健康", audience: "养宠人", entities: ["宠物"], requestedFeatures: ["疫苗提醒"], confidence: .9 }
+      : { title: "宠护日历", summary: "管理宠物健康提醒", steps: [
+          { id: "1", agent: "emma", title: "定义产品", goal: "确认提醒流程", tool: "define_product" },
+          { id: "2", agent: "alex", title: "实现应用", goal: "生成页面", tool: "compose_app" },
+          { id: "3", agent: "mike", title: "验证交付", goal: "检查结果", tool: "validate_artifact" }
+        ] };
+    return new Response(JSON.stringify({ model: "deepseek-v4-flash", choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  const server = createAppServer({ env: { DEEPSEEK_API_KEY: "hidden" }, fetchImpl: fakeFetch });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/agent/run`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: "plan", prompt: "做一个宠物疫苗提醒应用" })
+  });
+  assert.match(response.headers.get("content-type"), /application\/x-ndjson/);
+  const events = (await response.text()).trim().split("\n").map(JSON.parse);
+  assert.ok(events.some((event) => event.type === "intent.classified"));
+  assert.ok(events.some((event) => event.type === "plan.created"));
+  assert.equal(events.at(-1).status, "awaiting_approval");
+});

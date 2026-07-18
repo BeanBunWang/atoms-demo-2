@@ -9,7 +9,7 @@
     <link rel="icon" href="./assets/atoms-mark.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="./favicon.ico" type="image/png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=5" />
+    <link rel="stylesheet" href="./styles.css?v=6" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -76,7 +76,7 @@
             <div class="message-stream" id="message-stream" aria-live="polite"></div>
 
             <div class="plan-card" id="plan-card" hidden>
-              <div class="plan-heading"><span>IMPLEMENTATION PLAN</span><b>4 steps</b></div>
+              <div class="plan-heading"><span>IMPLEMENTATION PLAN</span><b id="plan-step-count">4 steps</b></div>
               <div id="plan-list" class="plan-list"></div>
               <div class="plan-actions">
                 <button class="approve-button" id="approve-plan-button" type="button">Approve & build</button>
@@ -92,7 +92,21 @@
                   <button class="mode-button" id="mode-button" type="button"><span>⚒</span><b id="mode-button-label">Team</b><i>⌄</i></button>
                   <div class="mode-menu" id="mode-menu" hidden></div>
                 </div>
-                <div class="composer-tools"><button id="attachment-button" type="button" aria-label="添加附件">＋</button><button class="send-button" id="send-button" type="submit" aria-label="发送指令">↑</button></div>
+                <div class="composer-tools">
+                  <div class="capability-wrap">
+                    <button id="attachment-button" type="button" aria-label="打开能力菜单" aria-expanded="false">＋</button>
+                    <div class="capability-menu" id="capability-menu" hidden>
+                      <div class="capability-title">Agent capabilities</div>
+                      <label><span><b>Team Mode</b><small>按意图路由多个专家</small></span><input type="checkbox" data-capability="teamMode" checked /></label>
+                      <button type="button" data-capability-action="attachment"><span><b>Attachments</b><small id="attachment-summary">添加文本上下文</small></span><i>›</i></button>
+                      <button type="button" data-capability-action="connectors"><span><b>Connectors</b><small id="connector-summary">选择上下文来源</small></span><i>›</i></button>
+                      <label><span><b>Deep Research</b><small>Iris 先研究再交付</small></span><input type="checkbox" data-capability="deepResearch" /></label>
+                      <label><span><b>Race Mode</b><small>比较两个页面方向</small></span><input type="checkbox" data-capability="raceMode" /></label>
+                    </div>
+                  </div>
+                  <input id="attachment-input" type="file" accept=".txt,.md,.json,.csv" multiple hidden />
+                  <button class="send-button" id="send-button" type="submit" aria-label="发送指令">↑</button>
+                </div>
               </div>
             </form>
           </section>
@@ -119,17 +133,14 @@
               <div class="app-frame desktop" id="app-frame">
                 <div class="generated-app" id="generated-app">
                   <header class="generated-nav"><a href="#"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></a><nav><a id="preview-nav-primary" href="#primary">发现</a><a id="preview-nav-secondary" href="#secondary">收藏</a><button id="preview-avatar">TW</button></nav></header>
-                  <main class="generated-main">
+                  <main class="generated-main" id="generated-main">
                     <section class="generated-hero editable-target" data-edit-target="hero">
                       <p id="preview-eyebrow">MAKE SPACE FOR THE WEEKEND</p>
                       <h2 id="preview-title">周末漫游</h2>
                       <span id="preview-subtitle">收藏灵感，生成一条真正松弛的周末路线。</span>
+                      <div class="hero-action-row"><button id="preview-primary-action">生成我的路线</button><div><b id="preview-metric-value">3</b><span id="preview-metric-label">推荐地点</span><small id="preview-metric-trend">已准备</small></div></div>
                     </section>
-                    <section class="route-card editable-target" data-edit-target="card">
-                      <div class="route-visual"><span id="preview-visual-start">09:30</span><i></i><span id="preview-visual-end">16:40</span><b id="preview-visual-label">3 stops</b></div>
-                      <div class="route-copy"><small>TODAY'S PICK</small><h3 id="preview-card-title">本周精选路线</h3><p id="preview-card-meta">3 个地点 · 4.2 km</p><button id="preview-cta">生成我的路线 <span>→</span></button></div>
-                    </section>
-                    <section class="mini-grid" id="preview-features"><article><span>01</span><h4>慢一点出发</h4><p>不早起，也不错过城市醒来的时刻。</p></article><article><span>02</span><h4>只选三站</h4><p>留出足够空白，让偶遇真的发生。</p></article><article><span>03</span><h4>保存灵感</h4><p>把喜欢的地方变成下一次出发。</p></article></section>
+                    <div class="preview-sections" id="preview-sections"></div>
                   </main>
                 </div>
               </div>
@@ -180,6 +191,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="./js/app.js?v=5"></script>
+    <script type="module" src="./js/app.js?v=6"></script>
   </body>
 </html>

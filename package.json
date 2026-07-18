@@ -1,11 +1,11 @@
 {
   "name": "atoms-demo-app-builder",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check server.mjs && node --check site/js/app.js && node --check site/js/planner.js && node --check site/js/storage.js && node --check site/sw.js"
+    "check": "node --check server.mjs && node --check agent/intent.mjs && node --check agent/prompts.mjs && node --check agent/tools.mjs && node --check agent/runtime.mjs && node --check site/js/app.js && node --check site/js/planner.js && node --check site/js/storage.js && node --check site/sw.js"
   }
 }
