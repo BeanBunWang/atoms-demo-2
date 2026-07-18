@@ -1,4 +1,4 @@
-const CACHE_NAME = "molecule-v1";
+const CACHE_NAME = "molecule-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -7,6 +7,7 @@ const ASSETS = [
   "./js/planner.js",
   "./js/storage.js",
   "./assets/icon.svg",
+  "./favicon.ico",
   "./manifest.webmanifest"
 ];
 
