@@ -13,8 +13,17 @@ import {
   publishWorkspace,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=7";
-import { loadState, saveState } from "./storage.js?v=7";
+} from "./planner.js?v=8";
+import { loadState, saveState } from "./storage.js?v=8";
+import {
+  COMPONENT_LIBRARY,
+  THEME_PRESETS,
+  createLibrarySection,
+  initialPreviewInteraction,
+  normalizeDesignTab,
+  normalizePreviewInteraction,
+  themePatch
+} from "./viewer.js?v=8";
 
 let state = loadState();
 let buildTimer = null;
@@ -51,8 +60,14 @@ const elements = {
   previewMetricLabel: $("#preview-metric-label"),
   previewMetricTrend: $("#preview-metric-trend"),
   previewSections: $("#preview-sections"),
+  previewAvatar: $("#preview-avatar"),
+  previewProfileMenu: $("#preview-profile-menu"),
+  designPreview: $("#design-preview"),
   codeView: $("#code-view"),
   codeContent: $("#code-content"),
+  currentComponents: $("#current-components"),
+  componentLibrary: $("#component-library"),
+  themePresets: $("#theme-presets"),
   agentProgress: $("#agent-progress"),
   terminal: $("#terminal"),
   fileTree: $("#file-tree"),
@@ -187,6 +202,78 @@ function renderQuickStarts(workspace) {
   return `<div class="quick-starts">${(workspace.quickStarts || []).map((prompt) => `<button type="button" data-quick-prompt="${escapeHTML(prompt)}">${escapeHTML(prompt)}</button>`).join("")}</div>`;
 }
 
+function previewSectionsFor(preview) {
+  return preview.sections || [
+    {
+      type: "cards",
+      title: preview.cardTitle || "核心功能",
+      description: preview.cardMeta || "第一版体验已就绪",
+      items: (preview.features || []).map((feature) => ({ title: feature.title, meta: feature.detail, value: "", status: "可用" })),
+      metrics: []
+    }
+  ];
+}
+
+function currentPreviewInteraction() {
+  if (!state.previewInteractions || typeof state.previewInteractions !== "object" || Array.isArray(state.previewInteractions)) state.previewInteractions = {};
+  const workspaceId = activeWorkspace().id;
+  state.previewInteractions[workspaceId] = normalizePreviewInteraction(state.previewInteractions[workspaceId]);
+  return state.previewInteractions[workspaceId];
+}
+
+function syncViewerChrome() {
+  const activeTab = normalizeDesignTab(state.activeDesignTab);
+  const codeActive = state.activePanel === "code";
+  $$('[data-design-tab]').forEach((button) => {
+    const active = !codeActive && button.dataset.designTab === activeTab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  $$('[data-design-pane]').forEach((pane) => {
+    pane.hidden = codeActive ? pane.dataset.designPane !== "visual" : pane.dataset.designPane !== activeTab;
+  });
+  elements.appFrame.hidden = codeActive || activeTab !== "visual";
+  elements.codeView.hidden = !codeActive;
+  $$('[data-panel]').forEach((button) => {
+    button.classList.toggle("active", codeActive);
+    button.setAttribute("aria-pressed", String(codeActive));
+  });
+  $$('[data-device]').forEach((button) => {
+    const active = button.dataset.device === state.device;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  elements.designButton.setAttribute("aria-pressed", String(state.designMode));
+}
+
+function renderDesignTools(workspace) {
+  const sections = previewSectionsFor(workspace.preview);
+  elements.currentComponents.innerHTML = `<h3>Current structure</h3>${sections
+    .map((section, index) => `<button type="button" data-focus-section="${index}"><span>${String(index + 1).padStart(2, "0")}</span><b>${escapeHTML(section.title)}</b><small>${escapeHTML(section.type)}</small></button>`)
+    .join("")}`;
+  elements.componentLibrary.innerHTML = COMPONENT_LIBRARY.map(
+    (component) => `<article><span>${escapeHTML(component.type)}</span><h3>${escapeHTML(component.name)}</h3><p>${escapeHTML(component.description)}</p><button type="button" data-add-component="${escapeHTML(component.type)}">Add to page <b>＋</b></button></article>`
+  ).join("");
+  elements.themePresets.innerHTML = THEME_PRESETS.map(
+    (theme) => `<button type="button" data-theme-id="${escapeHTML(theme.id)}" class="${workspace.preview.themeId === theme.id ? "active" : ""}"><i style="--swatch-accent:${escapeHTML(theme.accent)};--swatch-bg:${escapeHTML(theme.background)}"></i><span><b>${escapeHTML(theme.name)}</b><small>${escapeHTML(theme.description)}</small></span><strong>${workspace.preview.themeId === theme.id ? "Applied" : "Apply"}</strong></button>`
+  ).join("");
+}
+
+function setDesignTab(tab) {
+  state.activeDesignTab = normalizeDesignTab(tab);
+  state.activePanel = "preview";
+  persist();
+  syncViewerChrome();
+}
+
+function scrollPreviewTo(location, behavior = "smooth") {
+  const target = location === "home" ? elements.generatedApp : elements.previewSections.querySelector(`[data-section-index="${location}"]`);
+  if (!target) return;
+  const previewRect = elements.designPreview.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  elements.designPreview.scrollTo({ top: elements.designPreview.scrollTop + targetRect.top - previewRect.top - 12, behavior });
+}
+
 function renderMessages(workspace) {
   const nearBottom = elements.messageStream.scrollHeight - elements.messageStream.scrollTop - elements.messageStream.clientHeight < 80;
   elements.messageStream.innerHTML = workspace.messages
@@ -207,9 +294,11 @@ function renderMessages(workspace) {
 
 function renderPreview(workspace) {
   const preview = workspace.preview;
+  const interaction = currentPreviewInteraction();
   elements.generatedApp.style.setProperty("--preview-accent", preview.accent);
   elements.generatedApp.style.setProperty("--preview-bg", preview.background || "#fffdf9");
   elements.generatedApp.dataset.template = preview.template || "landing";
+  elements.generatedApp.dataset.heading = preview.headingStyle || "editorial";
   elements.previewBrand.textContent = preview.title;
   elements.previewLogo.textContent = preview.title.slice(0, 1).toUpperCase();
   elements.previewEyebrow.textContent = preview.eyebrow;
@@ -219,25 +308,35 @@ function renderPreview(workspace) {
   elements.previewSubtitle.textContent = preview.subtitle;
   const action = preview.primaryAction || preview.button || "开始体验";
   const metric = preview.heroMetric || { value: preview.visualEnd || "01", label: preview.cardTitle || "当前重点", trend: preview.visualLabel || "已准备" };
-  elements.previewPrimaryAction.textContent = action;
+  elements.previewPrimaryAction.textContent = interaction.primaryDone ? `${action} ✓` : action;
+  elements.previewPrimaryAction.classList.toggle("completed", interaction.primaryDone);
   elements.previewMetricValue.textContent = metric.value;
   elements.previewMetricLabel.textContent = metric.label;
   elements.previewMetricTrend.textContent = metric.trend;
-  const sections = preview.sections || [
-    { type: "cards", title: preview.cardTitle || "核心功能", description: preview.cardMeta || "第一版体验已就绪", items: (preview.features || []).map((feature) => ({ title: feature.title, meta: feature.detail, value: "", status: "可用" })), metrics: [] }
-  ];
+  const sections = previewSectionsFor(preview);
   elements.previewSections.innerHTML = sections.map(renderPreviewSection).join("");
   elements.codeContent.textContent = workspace.code;
   elements.appFrame.className = `app-frame ${state.device}`;
   elements.generatedApp.classList.toggle("design-active", state.designMode);
   elements.designButton.classList.toggle("active", state.designMode);
   elements.designHint.hidden = !state.designMode;
+  elements.previewNavPrimary.classList.toggle("active", interaction.activeSection === "0");
+  elements.previewNavSecondary.classList.toggle("active", interaction.activeSection === "1");
+  elements.previewProfileMenu.hidden = true;
+  elements.previewAvatar.setAttribute("aria-expanded", "false");
+  renderDesignTools(workspace);
+  syncViewerChrome();
 }
 
 function renderPreviewSection(section, sectionIndex) {
+  const selectedItems = new Set(currentPreviewInteraction().selectedItems || []);
   const metrics = (section.metrics || []).map((metric) => `<div class="metric-tile"><span>${escapeHTML(metric.label)}</span><b>${escapeHTML(metric.value)}</b><small>${escapeHTML(metric.trend)}</small></div>`).join("");
-  const items = (section.items || []).map((item, index) => `<article class="preview-item"><span class="item-index">${String(index + 1).padStart(2, "0")}</span><div><b>${escapeHTML(item.title)}</b><p>${escapeHTML(item.meta)}</p></div><aside><strong>${escapeHTML(item.value)}</strong><small>${escapeHTML(item.status)}</small></aside></article>`).join("");
-  return `<section class="preview-module module-${escapeHTML(section.type)} editable-target" data-edit-target="section-${sectionIndex}"><header><div><small>${escapeHTML(section.type)}</small><h3>${escapeHTML(section.title)}</h3></div><p>${escapeHTML(section.description)}</p></header>${metrics ? `<div class="metric-grid">${metrics}</div>` : ""}<div class="module-items">${items}</div></section>`;
+  const items = (section.items || []).map((item, index) => {
+    const itemId = `${sectionIndex}:${index}`;
+    const selected = selectedItems.has(itemId);
+    return `<button type="button" class="preview-item ${selected ? "selected" : ""}" data-preview-item="${itemId}" aria-pressed="${selected}"><span class="item-index">${selected ? "✓" : String(index + 1).padStart(2, "0")}</span><span><b>${escapeHTML(item.title)}</b><p>${escapeHTML(item.meta)}</p></span><aside><strong>${escapeHTML(item.value)}</strong><small>${selected ? "已选择" : escapeHTML(item.status)}</small></aside></button>`;
+  }).join("");
+  return `<section class="preview-module module-${escapeHTML(section.type)} editable-target" data-edit-target="section-${sectionIndex}" data-section-index="${sectionIndex}"><header><div><small>${escapeHTML(section.type)}</small><h3>${escapeHTML(section.title)}</h3></div><p>${escapeHTML(section.description)}</p></header>${metrics ? `<div class="metric-grid">${metrics}</div>` : ""}<div class="module-items">${items}</div></section>`;
 }
 
 function renderActivity(workspace) {
@@ -459,9 +558,15 @@ function openPublishDialog() {
 
 function standalonePreview(workspace) {
   const p = workspace.preview;
-  const first = p.sections?.[0] || { title: p.cardTitle || "核心功能", description: p.cardMeta || "第一版已就绪", items: [] };
-  const items = (first.items || []).map((item) => `<li><b>${escapeHTML(item.title)}</b><span>${escapeHTML(item.meta)}</span></li>`).join("");
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(p.title)}</title><style>body{margin:0;background:${escapeHTML(p.background || "#fffdf9")};color:#222;font-family:system-ui}main{max-width:760px;margin:auto;padding:10vh 24px}small{color:${escapeHTML(p.accent)};font-weight:800;letter-spacing:.15em}h1{font:500 clamp(48px,9vw,88px)/.95 Georgia;margin:16px 0}p{max-width:520px;color:#777;line-height:1.7}.card{margin-top:52px;padding:38px;border:1px solid #e7ded4;background:#fff}button{margin-top:20px;padding:12px 18px;border:0;background:${escapeHTML(p.accent)};color:white}ul{padding:0;list-style:none}li{display:flex;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid #eee}li span{color:#777}</style><main><small>${escapeHTML(p.eyebrow || "ATOM DEMO PREVIEW")}</small><h1>${escapeHTML(p.title)}</h1><p>${escapeHTML(p.subtitle)}</p><button>${escapeHTML(p.primaryAction || p.button || "开始体验")} →</button><div class="card"><h2>${escapeHTML(first.title)}</h2><p>${escapeHTML(first.description)}</p><ul>${items}</ul></div></main>`;
+  const sections = previewSectionsFor(p)
+    .map((section, sectionIndex) => {
+      const items = (section.items || []).map((item) => `<li><b>${escapeHTML(item.title)}</b><span>${escapeHTML(item.meta)}</span><button type="button" aria-label="选择 ${escapeHTML(item.title)}">选择</button></li>`).join("");
+      const metrics = (section.metrics || []).map((metric) => `<div><small>${escapeHTML(metric.label)}</small><b>${escapeHTML(metric.value)}</b><span>${escapeHTML(metric.trend)}</span></div>`).join("");
+      return `<section class="card" id="section-${sectionIndex}"><small>${escapeHTML(section.type)}</small><h2>${escapeHTML(section.title)}</h2><p>${escapeHTML(section.description)}</p>${metrics ? `<div class="metrics">${metrics}</div>` : ""}<ul>${items}</ul></section>`;
+    })
+    .join("");
+  const primaryAction = escapeHTML(p.primaryAction || p.button || "开始体验");
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(p.title)}</title><style>:root{--accent:${escapeHTML(p.accent)};--bg:${escapeHTML(p.background || "#fffdf9")}}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#222;font-family:system-ui}header{position:sticky;top:0;display:flex;justify-content:space-between;padding:16px 24px;border-bottom:1px solid #e7ded4;background:color-mix(in srgb,var(--bg) 92%,white);backdrop-filter:blur(12px)}header button{border:0;background:transparent;color:#222;font-weight:700}header nav{display:flex;gap:10px}main{max-width:860px;margin:auto;padding:9vh 24px}small{color:var(--accent);font-weight:800;letter-spacing:.15em}h1{font:500 clamp(48px,9vw,88px)/.95 Georgia;margin:16px 0}p{max-width:620px;color:#777;line-height:1.7}.primary{margin-top:20px;padding:12px 18px;border:0;background:var(--accent);color:white}.card{margin-top:52px;padding:38px;border:1px solid #e7ded4;background:#fff}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.metrics div{display:grid;padding:16px;background:color-mix(in srgb,var(--accent) 8%,white)}.metrics b{font:500 28px Georgia}ul{padding:0;list-style:none}li{display:grid;grid-template-columns:1fr 1fr auto;gap:16px;align-items:center;padding:12px 0;border-top:1px solid #eee}li span{color:#777}li button{padding:7px 10px;border:1px solid #ddd;background:white}button{cursor:pointer}button.done{background:#222;color:white}@media(max-width:600px){header{padding:12px}main{padding-inline:16px}.card{padding:24px}li{grid-template-columns:1fr auto}li span{grid-column:1/-1}}</style></head><body><header><button type="button" data-jump="top">${escapeHTML(p.title)}</button><nav><button type="button" data-jump="section-0">${escapeHTML(p.navItems?.[0] || "概览")}</button><button type="button" data-jump="section-1">${escapeHTML(p.navItems?.[1] || "记录")}</button></nav></header><main><small>${escapeHTML(p.eyebrow || "ATOM DEMO PREVIEW")}</small><h1>${escapeHTML(p.title)}</h1><p>${escapeHTML(p.subtitle)}</p><button class="primary" type="button" data-primary>${primaryAction} →</button>${sections}</main><script>document.addEventListener("click",function(event){var jump=event.target.closest("[data-jump]");if(jump){var target=jump.dataset.jump==="top"?document.body:document.getElementById(jump.dataset.jump)||document.getElementById("section-0");window.scrollTo({top:target.offsetTop-64,behavior:"smooth"});}var primary=event.target.closest("[data-primary]");if(primary){primary.classList.toggle("done");primary.textContent=primary.classList.contains("done")?${JSON.stringify(`${primaryAction} ✓`)}:${JSON.stringify(`${primaryAction} →`)};var first=document.getElementById("section-0");if(first)window.scrollTo({top:first.offsetTop-64,behavior:"smooth"});}var item=event.target.closest("li button");if(item){item.classList.toggle("done");item.textContent=item.classList.contains("done")?"已选择":"选择";}});<\/script></body></html>`;
 }
 
 elements.promptInput.addEventListener("input", syncComposerState);
@@ -539,19 +644,23 @@ $$('[data-close-dialog]').forEach((button) => button.addEventListener("click", (
 $$('[data-panel]').forEach((button) =>
   button.addEventListener("click", () => {
     state.activePanel = state.activePanel === "code" ? "preview" : "code";
+    if (state.activePanel === "preview") state.activeDesignTab = "visual";
     persist();
-    $$('[data-panel]').forEach((item) => item.classList.toggle("active", state.activePanel === "code"));
-    elements.appFrame.hidden = state.activePanel !== "preview";
-    elements.codeView.hidden = state.activePanel !== "code";
+    syncViewerChrome();
+    showToast(state.activePanel === "code" ? "Generated code 已打开" : "返回可交互预览");
   })
 );
-$("#activity-toggle").addEventListener("click", () => elements.activityPanel.classList.toggle("open"));
+$("#activity-toggle").addEventListener("click", () => {
+  const open = elements.activityPanel.classList.toggle("open");
+  $("#activity-toggle").classList.toggle("active", open);
+  $("#activity-toggle").setAttribute("aria-expanded", String(open));
+});
 $$('[data-device]').forEach((button) =>
   button.addEventListener("click", () => {
     state.device = button.dataset.device;
     persist();
-    $$('[data-device]').forEach((item) => item.classList.toggle("active", item.dataset.device === state.device));
     renderPreview(activeWorkspace());
+    showToast(`已切换为${button.getAttribute("aria-label")}`);
   })
 );
 $$('[data-rail]').forEach((button) =>
@@ -564,23 +673,128 @@ $$('[data-rail]').forEach((button) =>
 
 elements.designButton.addEventListener("click", () => {
   state.designMode = !state.designMode;
+  state.activeDesignTab = "visual";
+  state.activePanel = "preview";
   persist();
   renderPreview(activeWorkspace());
   showToast(state.designMode ? "Design mode 已开启，点击预览元素编辑" : "Design mode 已关闭");
 });
+
+$$('[data-design-tab]').forEach((button) => button.addEventListener("click", () => {
+  setDesignTab(button.dataset.designTab);
+  showToast(`${button.textContent.trim()} 已打开`);
+}));
+
+elements.currentComponents.addEventListener("click", (event) => {
+  const index = event.target.closest("[data-focus-section]")?.dataset.focusSection;
+  if (index === undefined) return;
+  const interaction = currentPreviewInteraction();
+  interaction.activeSection = String(index);
+  setDesignTab("visual");
+  renderPreview(activeWorkspace());
+  requestAnimationFrame(() => scrollPreviewTo(String(index)));
+  showToast("已在 Visual Editor 中定位组件");
+});
+
+elements.componentLibrary.addEventListener("click", (event) => {
+  const type = event.target.closest("[data-add-component]")?.dataset.addComponent;
+  if (!type) return;
+  const workspace = activeWorkspace();
+  const sections = previewSectionsFor(workspace.preview);
+  const next = updatePreview(workspace, { sections: [...sections, createLibrarySection(type, sections.length)] });
+  replaceWorkspace(next);
+  state.activeDesignTab = "visual";
+  state.activePanel = "preview";
+  persist();
+  render();
+  requestAnimationFrame(() => scrollPreviewTo(String(sections.length)));
+  showToast("组件已加入 Preview，并同步到 Code");
+});
+
+elements.themePresets.addEventListener("click", (event) => {
+  const themeId = event.target.closest("[data-theme-id]")?.dataset.themeId;
+  if (!themeId) return;
+  replaceWorkspace(updatePreview(activeWorkspace(), themePatch(themeId)));
+  render();
+  showToast("主题已应用，并同步到工作区与 Code");
+});
+
 elements.generatedApp.addEventListener("click", (event) => {
-  if (!state.designMode || !event.target.closest("[data-edit-target]")) return;
-  const preview = activeWorkspace().preview;
-  elements.designForm.elements.title.value = preview.title;
-  elements.designForm.elements.subtitle.value = preview.subtitle;
-  elements.designForm.elements.accent.value = preview.accent;
-  elements.designDialog.showModal();
+  const editTarget = event.target.closest("[data-edit-target]");
+  if (state.designMode && editTarget) {
+    const preview = activeWorkspace().preview;
+    const sectionIndex = Number(editTarget.dataset.editTarget.replace("section-", ""));
+    const section = editTarget.dataset.editTarget.startsWith("section-") ? previewSectionsFor(preview)[sectionIndex] : null;
+    elements.designForm.elements.title.value = section?.title || preview.title;
+    elements.designForm.elements.subtitle.value = section?.description || preview.subtitle;
+    elements.designForm.elements.accent.value = preview.accent;
+    elements.designDialog.dataset.editTarget = editTarget.dataset.editTarget;
+    elements.designDialog.showModal();
+    return;
+  }
+
+  const command = event.target.closest("[data-preview-command]")?.dataset.previewCommand;
+  if (command === "profile") {
+    const open = elements.previewProfileMenu.hidden;
+    elements.previewProfileMenu.hidden = !open;
+    elements.previewAvatar.setAttribute("aria-expanded", String(open));
+    return;
+  }
+  if (command === "runtime") {
+    elements.activityPanel.classList.add("open");
+    $("#activity-toggle").classList.add("active");
+    $("#activity-toggle").setAttribute("aria-expanded", "true");
+    elements.previewProfileMenu.hidden = true;
+    showToast("已打开 Agent runtime 运行状态");
+    return;
+  }
+  if (command === "reset") {
+    state.previewInteractions[activeWorkspace().id] = initialPreviewInteraction();
+    persist();
+    renderPreview(activeWorkspace());
+    elements.designPreview.scrollTo({ top: 0, behavior: "smooth" });
+    showToast("预览内操作状态已重置");
+    return;
+  }
+  if (["home", "primary", "secondary", "primary-action"].includes(command)) {
+    const interaction = currentPreviewInteraction();
+    const lastIndex = Math.max(0, previewSectionsFor(activeWorkspace().preview).length - 1);
+    const target = command === "home" ? "home" : command === "secondary" ? String(Math.min(1, lastIndex)) : "0";
+    interaction.activeSection = target;
+    if (command === "primary-action") interaction.primaryDone = true;
+    persist();
+    renderPreview(activeWorkspace());
+    requestAnimationFrame(() => scrollPreviewTo(target));
+    showToast(command === "primary-action" ? "主操作已执行，已进入核心内容" : "已切换预览内容");
+    return;
+  }
+
+  const itemId = event.target.closest("[data-preview-item]")?.dataset.previewItem;
+  if (!itemId) return;
+  const interaction = currentPreviewInteraction();
+  const selected = new Set(interaction.selectedItems || []);
+  selected.has(itemId) ? selected.delete(itemId) : selected.add(itemId);
+  interaction.selectedItems = [...selected];
+  persist();
+  renderPreview(activeWorkspace());
+  showToast(selected.has(itemId) ? "预览项目已选择" : "预览项目已取消选择");
 });
 elements.designForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const data = new FormData(elements.designForm);
-  const workspace = updatePreview(activeWorkspace(), { title: data.get("title"), subtitle: data.get("subtitle"), accent: data.get("accent") });
-  replaceWorkspace(workspace);
+  const workspace = activeWorkspace();
+  const target = elements.designDialog.dataset.editTarget || "hero";
+  let patch = { accent: data.get("accent") };
+  if (target.startsWith("section-")) {
+    const sectionIndex = Number(target.replace("section-", ""));
+    patch.sections = previewSectionsFor(workspace.preview).map((section, index) =>
+      index === sectionIndex ? { ...section, title: data.get("title"), description: data.get("subtitle") } : section
+    );
+  } else {
+    patch = { ...patch, title: data.get("title"), subtitle: data.get("subtitle") };
+  }
+  const updatedWorkspace = updatePreview(workspace, patch);
+  replaceWorkspace(updatedWorkspace);
   elements.designDialog.close();
   render();
   showToast("可视编辑已同步到 Preview 与 Code");
@@ -638,8 +852,14 @@ $$('[data-nav]').forEach((button) => button.addEventListener("click", () => {
 }));
 $("#export-button").addEventListener("click", exportWorkspace);
 $("#refresh-button").addEventListener("click", () => {
-  elements.appFrame.animate([{ opacity: .45 }, { opacity: 1 }], { duration: 260 });
-  showToast("Preview refreshed");
+  state.previewInteractions[activeWorkspace().id] = initialPreviewInteraction();
+  state.activeDesignTab = "visual";
+  state.activePanel = "preview";
+  persist();
+  renderPreview(activeWorkspace());
+  elements.designPreview.scrollTo({ top: 0, behavior: "smooth" });
+  elements.appFrame.animate([{ opacity: .35, transform: "scale(.995)" }, { opacity: 1, transform: "scale(1)" }], { duration: 280 });
+  showToast("Preview 已从当前工作区状态重新渲染");
 });
 $("#open-preview-button").addEventListener("click", () => {
   const blob = new Blob([standalonePreview(activeWorkspace())], { type: "text/html" });
@@ -663,9 +883,19 @@ elements.sidebarScrim.addEventListener("click", () => {
 
 document.addEventListener("click", (event) => {
   if (!event.target.closest(".capability-wrap")) elements.capabilityMenu.hidden = true;
+  if (!event.target.closest(".generated-nav nav")) {
+    elements.previewProfileMenu.hidden = true;
+    elements.previewAvatar.setAttribute("aria-expanded", "false");
+  }
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") elements.activityPanel.classList.remove("open");
+  if (event.key === "Escape") {
+    elements.activityPanel.classList.remove("open");
+    $("#activity-toggle").classList.remove("active");
+    $("#activity-toggle").setAttribute("aria-expanded", "false");
+    elements.previewProfileMenu.hidden = true;
+    elements.previewAvatar.setAttribute("aria-expanded", "false");
+  }
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !elements.sendButton.disabled) $("#composer-form").requestSubmit();
 });
 
@@ -683,9 +913,5 @@ if ("serviceWorker" in navigator) {
 
 render();
 renderModelCapability();
-$$('[data-panel]').forEach((item) => item.classList.toggle("active", item.dataset.panel === state.activePanel));
-elements.appFrame.hidden = state.activePanel !== "preview";
-elements.codeView.hidden = state.activePanel !== "code";
-$$('[data-device]').forEach((item) => item.classList.toggle("active", item.dataset.device === state.device));
 if (activeWorkspace().phase === "building") startBuildLoop(activeWorkspace().id);
 detectModelCapability();

@@ -1,4 +1,4 @@
-import { createDemoWorkspace } from "./planner.js?v=7";
+import { createDemoWorkspace } from "./planner.js?v=8";
 
 export const STORAGE_KEY = "atoms-demo-workspace-v5";
 
@@ -9,8 +9,10 @@ export function initialState() {
     activeWorkspaceId: workspace.id,
     activePanel: "preview",
     activeRail: "terminal",
+    activeDesignTab: "visual",
     device: "desktop",
     designMode: false,
+    previewInteractions: {},
     sidebarOpen: false,
     workspaces: [workspace]
   };

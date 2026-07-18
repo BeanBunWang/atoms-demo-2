@@ -33,6 +33,26 @@ App Viewer + Working Process
 - `server.mjs` / `worker.mjs`：本地与 Cloudflare 运行边界
 - `site/js/`：工作区状态、对话过程、App Viewer 和可视编辑
 
+## App Viewer 交互模型
+
+```text
+Agent 产出 UI schema
+  ↓
+renderPreview(workspace.preview, viewerState)
+  ↓
+Viewer command（device / design / library / theme / code / console / app action）
+  ↓
+校验并更新 workspace.preview 或 viewerState
+  ↓
+localStorage 持久化 → Preview / Code / Toast / Console 同步反馈
+```
+
+- `workspace.preview` 保存生成内容、区块、主题和可编辑字段；Viewer state 保存设备、面板、Design 子工具及预览交互状态。
+- `Visual Editor` 修改 Hero 或具体区块内容，`Library` 添加受控组件 schema，`Theme` 应用预置视觉参数；三者都只更新 schema，不注入或执行任意代码。
+- 生成应用导航、CTA、项目选择和头像菜单通过受控 command 更新 Viewer state；刷新重建当前 schema 并清除临时交互状态。
+- 独立预览复用同一份 schema，输出全部区块和最小可验证交互，避免与主 Viewer 内容漂移。
+- 每个可见按钮必须满足“状态变化、内容变化、面板变化或明确反馈”之一；暂不支持的入口必须禁用并标注，不保留伪可点击外观。
+
 ## 稳定性与安全
 
 - 模型输出必须通过 schema 规范化和长度限制。
@@ -43,4 +63,4 @@ App Viewer + Working Process
 
 ## 当前边界
 
-本项目复刻的是 Atoms 产品体验和 Agent 内核，不是云 IDE：没有隔离代码沙箱、真实数据库/Auth、OAuth 连接器、生成应用的独立部署和完整版本回放。这些能力应在下一阶段沿现有 runtime 事件与产物边界扩展，而不是把任意执行能力塞进前端。
+本项目复刻的是 Atoms 产品体验和 Agent 内核，不是云 IDE：没有隔离代码沙箱、真实数据库/Auth、OAuth 连接器、生成应用的独立部署和完整版本回放。Viewer 内交互用于验收 UI schema 与产品流程，不代表真实业务数据已经落库。这些能力应在下一阶段沿现有 runtime 事件与产物边界扩展，而不是把任意执行能力塞进前端。

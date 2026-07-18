@@ -9,7 +9,7 @@
     <link rel="icon" href="./assets/atoms-mark.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="./favicon.ico" type="image/png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=7" />
+    <link rel="stylesheet" href="./styles.css?v=8" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -100,16 +100,16 @@
             <header class="viewer-toolbar">
               <div class="app-viewer-pill">▣ App Viewer</div>
               <div class="viewer-tools">
-                <button class="tool-button" id="refresh-button" type="button" aria-label="刷新预览">↻</button>
+                <button class="tool-button" id="refresh-button" type="button" aria-label="刷新并重置预览状态" title="刷新预览">↻</button>
                 <div class="device-switcher" aria-label="预览尺寸">
-                  <button type="button" data-device="desktop" class="active" title="桌面">▱</button>
-                  <button type="button" data-device="tablet" title="平板">▯</button>
-                  <button type="button" data-device="mobile" title="手机">▯</button>
+                  <button type="button" data-device="desktop" class="active" title="桌面" aria-label="桌面预览">▱</button>
+                  <button type="button" data-device="tablet" title="平板" aria-label="平板预览">▯</button>
+                  <button type="button" data-device="mobile" title="手机" aria-label="手机预览">▯</button>
                 </div>
-                <button class="design-button" id="design-button" type="button"><span>✦</span> Design</button>
-                <button class="tool-button console-button" id="activity-toggle" type="button" aria-label="打开 Console">Console</button>
-                <button class="tool-button" type="button" data-panel="code" aria-label="查看代码">&lt;/&gt;</button>
-                <button class="tool-button" id="open-preview-button" type="button" aria-label="新窗口打开预览">↗</button>
+                <button class="design-button" id="design-button" type="button" aria-pressed="false"><span>✦</span> Design</button>
+                <button class="tool-button console-button" id="activity-toggle" type="button" aria-label="打开 Console" aria-expanded="false">Console</button>
+                <button class="tool-button" type="button" data-panel="code" aria-label="查看代码" aria-pressed="false">&lt;/&gt;</button>
+                <button class="tool-button" id="open-preview-button" type="button" aria-label="新窗口打开完整预览" title="新窗口预览">↗</button>
               </div>
             </header>
 
@@ -117,26 +117,37 @@
               <div class="design-shell">
                 <aside class="design-sidebar" aria-label="设计工具">
                   <strong><span>✣</span> Design</strong>
-                  <button type="button" class="active">Visual Editor</button>
-                  <button type="button">Library</button>
-                  <button type="button">Theme</button>
+                  <button type="button" class="active" data-design-tab="visual" aria-controls="visual-editor-pane">Visual Editor</button>
+                  <button type="button" data-design-tab="library" aria-controls="library-pane">Library</button>
+                  <button type="button" data-design-tab="theme" aria-controls="theme-pane">Theme</button>
                 </aside>
-                <div class="design-preview">
+                <div class="design-preview" id="design-preview">
+              <section class="design-pane visual-editor-pane" id="visual-editor-pane" data-design-pane="visual">
               <div class="app-frame desktop" id="app-frame">
                 <div class="generated-app" id="generated-app">
-                  <header class="generated-nav"><a href="#"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></a><nav><a id="preview-nav-primary" href="#primary">发现</a><a id="preview-nav-secondary" href="#secondary">收藏</a><button id="preview-avatar">TW</button></nav></header>
+                  <header class="generated-nav"><button class="preview-brand-button" type="button" data-preview-command="home"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></button><nav><button id="preview-nav-primary" type="button" data-preview-command="primary">发现</button><button id="preview-nav-secondary" type="button" data-preview-command="secondary">收藏</button><button id="preview-avatar" type="button" data-preview-command="profile" aria-label="打开预览账户菜单" aria-expanded="false">TW</button><div class="preview-profile-menu" id="preview-profile-menu" hidden><strong>Demo workspace</strong><span>本地预览身份 · TW</span><button type="button" data-preview-command="runtime">查看运行状态</button><button type="button" data-preview-command="reset">重置演示操作</button></div></nav></header>
                   <main class="generated-main" id="generated-main">
                     <section class="generated-hero editable-target" data-edit-target="hero">
                       <p id="preview-eyebrow">MAKE SPACE FOR THE WEEKEND</p>
                       <h2 id="preview-title">周末漫游</h2>
                       <span id="preview-subtitle">收藏灵感，生成一条真正松弛的周末路线。</span>
-                      <div class="hero-action-row"><button id="preview-primary-action">生成我的路线</button><div><b id="preview-metric-value">3</b><span id="preview-metric-label">推荐地点</span><small id="preview-metric-trend">已准备</small></div></div>
+                      <div class="hero-action-row"><button id="preview-primary-action" type="button" data-preview-command="primary-action">生成我的路线</button><div><b id="preview-metric-value">3</b><span id="preview-metric-label">推荐地点</span><small id="preview-metric-trend">已准备</small></div></div>
                     </section>
                     <div class="preview-sections" id="preview-sections"></div>
                   </main>
                 </div>
               </div>
               <pre class="code-view" id="code-view" hidden><code id="code-content"></code></pre>
+              </section>
+              <section class="design-pane design-workbench" id="library-pane" data-design-pane="library" hidden>
+                <header><span>COMPONENT LIBRARY</span><h2>组合当前应用</h2><p>添加受控组件，结果会立即同步到 Preview 与 Code。</p></header>
+                <div class="current-components" id="current-components"></div>
+                <div class="library-grid" id="component-library"></div>
+              </section>
+              <section class="design-pane design-workbench" id="theme-pane" data-design-pane="theme" hidden>
+                <header><span>THEME PRESETS</span><h2>调整视觉语气</h2><p>主题只更新安全 UI schema，不执行生成代码。</p></header>
+                <div class="theme-grid" id="theme-presets"></div>
+              </section>
                 </div>
               </div>
               <div class="design-hint" id="design-hint" hidden>Design mode · 点击预览中的标题或卡片进行编辑</div>
@@ -184,6 +195,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="./js/app.js?v=7"></script>
+    <script type="module" src="./js/app.js?v=8"></script>
   </body>
 </html>
