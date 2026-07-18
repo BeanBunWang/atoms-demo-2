@@ -36,6 +36,25 @@ test("产物校验要求话题相关和页面结构多样", () => {
   assert.equal(validateArtifact(artifact, intent).passed, true);
 });
 
+test("模型对象字段不会泄漏为 object Object 文案", () => {
+  const intent = inferIntent("做一个宠物疫苗提醒应用");
+  const artifact = normalizeArtifact({ preview: {
+    template: "tracker",
+    title: "宠护日历",
+    subtitle: "宠物疫苗记录与提醒",
+    navItems: [{ label: "概览" }, { label: "提醒" }],
+    primaryAction: { label: "添加提醒" },
+    sections: [
+      { type: "timeline", title: "疫苗时间线", items: [{ title: "狂犬疫苗" }] },
+      { type: "cards", title: "宠物档案", items: [{ title: "团子" }] },
+      { type: "progress", title: "免疫进度", items: [{ title: "年度计划" }] }
+    ]
+  } }, intent);
+  assert.deepEqual(artifact.preview.navItems, ["概览", "任务", "洞察"]);
+  assert.equal(typeof artifact.preview.primaryAction, "string");
+  assert.doesNotMatch(JSON.stringify(artifact), /\[object Object\]/);
+});
+
 test("runtime 先计划审批，再执行工具、生成产物并验证", async () => {
   const events = [];
   const responses = [

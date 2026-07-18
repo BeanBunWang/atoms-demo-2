@@ -29,4 +29,4 @@
 
 ## 能力边界
 
-模型代理位于 `server.mjs`；`agent/intent.mjs` 负责意图，`agent/runtime.mjs` 负责生命周期，`agent/tools.mjs` 负责受控工具与验证，`agent/prompts.mjs` 负责阶段提示词；浏览器工作区位于 `site/js/`。API Key 只由服务端读取，浏览器只接收规范化事件和产物。若升级为真实产品，仍需增加隔离构建环境、真实连接器和发布提供商，不应把 API Key 或任意代码执行能力放入浏览器端。
+模型调用位于纯 Web API 模块 `agent/model.mjs`，由本地 `server.mjs` 与 Cloudflare `worker.mjs` 复用；`agent/intent.mjs` 负责意图，`agent/runtime.mjs` 负责生命周期，`agent/tools.mjs` 负责受控工具与验证，`agent/prompts.mjs` 负责阶段提示词；浏览器工作区位于 `site/js/`。API Key 只由服务端读取，浏览器只接收规范化事件和产物。若升级为真实产品，仍需增加隔离构建环境、真实连接器和发布提供商，不应把 API Key 或任意代码执行能力放入浏览器端。

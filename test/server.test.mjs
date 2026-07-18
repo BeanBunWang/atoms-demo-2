@@ -73,6 +73,19 @@ test("健康检查只暴露模型可用状态", async (t) => {
   assert.equal(JSON.stringify(payload).includes("hidden"), false);
 });
 
+test("无效 JSON 返回稳定的客户端错误", async (t) => {
+  const server = createAppServer({ env: { DEEPSEEK_API_KEY: "hidden" } });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/agent/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{broken"
+  });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: "请求 JSON 无效" });
+});
+
 test("Agent endpoint 以 NDJSON 输出意图、计划与审批事件", async (t) => {
   const fakeFetch = async (_url, options) => {
     const request = JSON.parse(options.body);

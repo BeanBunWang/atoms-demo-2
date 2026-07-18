@@ -4,7 +4,8 @@ const TEMPLATES = new Set(["dashboard", "tracker", "catalog", "planner", "commun
 const SECTION_TYPES = new Set(["stats", "list", "cards", "timeline", "progress", "table"]);
 
 const clean = (value, fallback = "", max = 120) => {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  const scalar = typeof value === "string" || typeof value === "number" ? String(value) : "";
+  const text = scalar.replace(/\s+/g, " ").trim();
   return (text || fallback).slice(0, max);
 };
 const list = (value, max) => (Array.isArray(value) ? value : []).slice(0, max);
@@ -70,6 +71,7 @@ export function normalizeArtifact(value, intent) {
   const raw = value?.preview || {};
   const accent = /^#[0-9a-f]{6}$/i.test(raw.accent || "") ? raw.accent : "#6558f5";
   const background = /^#[0-9a-f]{6}$/i.test(raw.background || "") ? raw.background : "#f7f5f1";
+  const navItems = list(raw.navItems, 4).map((item) => clean(item, "", 10)).filter(Boolean);
   let sections = list(raw.sections, 5).map((section, index) => ({
     type: SECTION_TYPES.has(section?.type) ? section.type : index ? "list" : "stats",
     title: clean(section?.title, `${intent.domain}模块 ${index + 1}`, 40),
@@ -90,7 +92,7 @@ export function normalizeArtifact(value, intent) {
       template: TEMPLATES.has(raw.template) ? raw.template : intent.type === "analyze_data" ? "dashboard" : intent.type === "research" ? "catalog" : "tracker",
       title: clean(raw.title, `${intent.domain}助手`, 36), eyebrow: clean(raw.eyebrow, intent.domain, 40).toUpperCase(),
       subtitle: clean(raw.subtitle, intent.goal, 140), accent, background,
-      navItems: (list(raw.navItems, 4).length ? list(raw.navItems, 4) : ["概览", "任务", "洞察"]).map((item) => clean(item, "页面", 10)),
+      navItems: navItems.length ? navItems : ["概览", "任务", "洞察"],
       primaryAction: clean(raw.primaryAction, intent.requestedFeatures[0] || "开始使用", 18),
       heroMetric: { value: clean(raw.heroMetric?.value, "01", 20), label: clean(raw.heroMetric?.label, "当前重点", 28), trend: clean(raw.heroMetric?.trend, "已准备", 30) },
       sections
