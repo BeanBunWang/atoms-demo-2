@@ -3,190 +3,183 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#171915" />
-    <meta name="description" content="Molecule 是一个把一句想法变成可执行项目的多智能体工作台。" />
-    <title>Molecule · 分子工坊</title>
-    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#f7f7f8" />
+    <meta name="description" content="Atoms-like AI 应用构建工作台：从一句需求到计划、构建、预览与发布。" />
+    <title>Atoms Demo · AI App Builder</title>
+    <link rel="icon" href="./assets/atoms-mark.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="./favicon.ico" type="image/png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
+    <div class="demo-banner">
+      <span><b>Atoms-like Demo</b> · 本地规则引擎，不调用真实模型</span>
+      <a href="https://github.com/BeanBunWang/atoms-demo" target="_blank" rel="noreferrer">查看源码 ↗</a>
+    </div>
 
     <div class="app-shell">
-      <aside class="sidebar" aria-label="项目导航">
-        <div class="brand-lockup">
-          <span class="brand-mark" aria-hidden="true"><i></i><b></b></span>
-          <span><strong>Molecule</strong><small>分子工坊</small></span>
-        </div>
+      <aside class="sidebar" id="sidebar" aria-label="主导航">
+        <a class="brand" href="#" aria-label="Atoms Demo 首页">
+          <img src="./assets/atoms-mark.svg" alt="" />
+          <strong>Atoms</strong>
+          <span>Demo</span>
+        </a>
 
-        <button class="new-project-button" id="new-project-button" type="button">
-          <span aria-hidden="true">＋</span>
-          新建项目
-          <kbd>N</kbd>
-        </button>
+        <nav class="primary-nav" aria-label="产品导航">
+          <button type="button" class="nav-link" data-nav="home"><span>⌂</span>Home</button>
+          <button type="button" class="nav-link" data-nav="resources"><span>◇</span>Resources</button>
+          <button type="button" class="nav-link active" data-nav="projects"><span>▣</span>My Projects</button>
+        </nav>
 
-        <div class="sidebar-section">
-          <p class="eyebrow">项目空间</p>
-          <nav id="project-list" class="project-list" aria-label="项目列表"></nav>
-        </div>
+        <button class="new-project-button" id="new-project-button" type="button"><span>＋</span>New project</button>
+
+        <section class="project-section" aria-labelledby="project-label">
+          <div class="section-label" id="project-label">PROJECTS</div>
+          <nav class="project-list" id="project-list" aria-label="项目列表"></nav>
+        </section>
 
         <div class="sidebar-footer">
-          <button class="profile-button" id="profile-button" type="button">
-            <span class="avatar" id="profile-avatar">访</span>
-            <span><strong id="profile-name">体验者</strong><small>本地工作区</small></span>
-            <span aria-hidden="true">•••</span>
+          <div class="usage-card"><span>Free workspace</span><strong>Local only</strong><i><b></b></i></div>
+          <button class="user-button" id="export-button" type="button" title="导出当前工作区">
+            <span class="user-avatar">TW</span><span><strong>Thorn Wang</strong><small>Export workspace</small></span><b>•••</b>
           </button>
         </div>
       </aside>
 
+      <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
       <div class="workspace">
         <header class="topbar">
-          <button class="mobile-menu-button" id="mobile-menu-button" type="button" aria-label="打开项目导航">☰</button>
-          <div class="project-heading">
-            <p class="eyebrow" id="project-kicker">正在协作</p>
-            <h1 id="project-title">项目</h1>
+          <div class="topbar-start">
+            <button class="mobile-menu" id="mobile-menu" type="button" aria-label="打开导航">☰</button>
+            <div class="project-identity">
+              <span class="project-symbol">W</span>
+              <div><h1 id="workspace-title">周末漫游</h1><p><span id="workspace-status">Ready</span> · Autosaved locally</p></div>
+            </div>
           </div>
           <div class="topbar-actions">
-            <span class="save-state" id="save-state"><i></i> 已自动保存</span>
-            <button class="icon-button" id="theme-button" type="button" aria-label="切换主题">◐</button>
-            <button class="secondary-button compact" id="export-button" type="button">导出</button>
+            <div class="agent-stack" id="agent-stack" aria-label="参与智能体"></div>
+            <button class="mobile-view-toggle" id="mobile-view-toggle" type="button">Preview</button>
+            <button class="share-button" id="share-button" type="button">Share</button>
+            <button class="publish-button" id="publish-button" type="button">Publish <span>↗</span></button>
           </div>
         </header>
 
-        <nav class="view-tabs" aria-label="工作区视图">
-          <button type="button" data-view="studio" class="active">协作台</button>
-          <button type="button" data-view="board">任务板 <span id="task-count-badge">0</span></button>
-          <button type="button" data-view="publish">发布中心</button>
-        </nav>
+        <main class="builder" id="main-content">
+          <section class="conversation-panel" id="conversation-panel" aria-label="智能体对话">
+            <header class="panel-titlebar">
+              <div><strong>Build with Atoms</strong><span id="mode-label">Team mode</span></div>
+              <button class="icon-button" id="restart-button" type="button" aria-label="新建工作区">＋</button>
+            </header>
 
-        <main id="main-content" tabindex="-1">
-          <section class="view-panel active" id="studio-view" data-panel="studio">
-            <div class="command-card">
-              <div class="command-copy">
-                <span class="signal-dot" aria-hidden="true"></span>
-                <div>
-                  <p class="eyebrow">给团队的新指令</p>
-                  <h2>今天想把什么变成现实？</h2>
-                </div>
-              </div>
-              <label class="sr-only" for="brief-input">项目指令</label>
-              <textarea id="brief-input" rows="3" maxlength="500" placeholder="描述目标、用户和你希望解决的问题……"></textarea>
-              <div class="command-footer">
-                <div class="mode-switcher" id="mode-switcher" aria-label="执行模式"></div>
-                <button class="primary-button" id="run-team-button" type="button">
-                  <span>召集团队</span><span aria-hidden="true">↗</span>
-                </button>
+            <div class="message-stream" id="message-stream" aria-live="polite"></div>
+
+            <div class="plan-card" id="plan-card" hidden>
+              <div class="plan-heading"><span>IMPLEMENTATION PLAN</span><b>4 steps</b></div>
+              <div id="plan-list" class="plan-list"></div>
+              <div class="plan-actions">
+                <button class="approve-button" id="approve-plan-button" type="button">Approve & build</button>
+                <button class="quiet-button" id="revise-plan-button" type="button">Revise</button>
               </div>
             </div>
 
-            <div class="metrics-grid" id="metrics-grid"></div>
-
-            <div class="studio-grid">
-              <section class="panel agents-panel" aria-labelledby="agents-title">
-                <div class="panel-header">
-                  <div><p class="eyebrow">Live room</p><h2 id="agents-title">智能体接力</h2></div>
-                  <button class="text-button" id="pause-button" type="button">暂停</button>
+            <form class="composer" id="composer-form">
+              <label class="sr-only" for="prompt-input">向智能体描述要构建或修改的应用</label>
+              <textarea class="prompt-input" id="prompt-input" rows="3" maxlength="500" placeholder="Describe what you want to build or change..."></textarea>
+              <div class="composer-footer">
+                <div class="mode-menu-wrap">
+                  <button class="mode-button" id="mode-button" type="button"><span>⚒</span><b id="mode-button-label">Team</b><i>⌄</i></button>
+                  <div class="mode-menu" id="mode-menu" hidden></div>
                 </div>
-                <div class="agent-timeline" id="agent-timeline" aria-live="polite"></div>
-              </section>
+                <div class="composer-tools"><button id="attachment-button" type="button" aria-label="添加附件">＋</button><button class="send-button" id="send-button" type="submit" aria-label="发送指令">↑</button></div>
+              </div>
+            </form>
+          </section>
 
-              <section class="panel artifact-panel" aria-labelledby="artifact-title">
-                <div class="panel-header artifact-heading">
-                  <div><p class="eyebrow">Deliverables</p><h2 id="artifact-title">本轮交付物</h2></div>
-                  <div class="artifact-tabs" id="artifact-tabs" role="tablist" aria-label="交付物"></div>
+          <section class="viewer-panel" aria-label="应用查看器">
+            <header class="viewer-toolbar">
+              <div class="segmented" role="tablist" aria-label="查看模式">
+                <button type="button" role="tab" data-panel="preview" class="active">Preview</button>
+                <button type="button" role="tab" data-panel="code">Code</button>
+              </div>
+              <div class="viewer-tools">
+                <button class="tool-button" id="refresh-button" type="button" aria-label="刷新预览">↻</button>
+                <div class="device-switcher" aria-label="预览尺寸">
+                  <button type="button" data-device="desktop" class="active" title="桌面">▱</button>
+                  <button type="button" data-device="tablet" title="平板">▯</button>
+                  <button type="button" data-device="mobile" title="手机">▯</button>
                 </div>
-                <article id="artifact-content" class="artifact-content"></article>
-              </section>
+                <button class="design-button" id="design-button" type="button"><span>✦</span> Design</button>
+                <button class="tool-button" id="open-preview-button" type="button" aria-label="新窗口打开预览">↗</button>
+              </div>
+            </header>
+
+            <div class="viewer-canvas" id="viewer-canvas">
+              <div class="app-frame desktop" id="app-frame">
+                <div class="generated-app" id="generated-app">
+                  <header class="generated-nav"><a href="#"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></a><nav><a href="#discover">发现</a><a href="#saved">收藏</a><button id="preview-avatar">TW</button></nav></header>
+                  <main class="generated-main">
+                    <section class="generated-hero editable-target" data-edit-target="hero">
+                      <p>MAKE SPACE FOR THE WEEKEND</p>
+                      <h2 id="preview-title">周末漫游</h2>
+                      <span id="preview-subtitle">收藏灵感，生成一条真正松弛的周末路线。</span>
+                    </section>
+                    <section class="route-card editable-target" data-edit-target="card">
+                      <div class="route-visual"><span>09:30</span><i></i><span>16:40</span><b>3 stops</b></div>
+                      <div class="route-copy"><small>TODAY'S PICK</small><h3 id="preview-card-title">本周精选路线</h3><p id="preview-card-meta">3 个地点 · 4.2 km</p><button id="preview-cta">生成我的路线 <span>→</span></button></div>
+                    </section>
+                    <section class="mini-grid"><article><span>01</span><h4>慢一点出发</h4><p>不早起，也不错过城市醒来的时刻。</p></article><article><span>02</span><h4>只选三站</h4><p>留出足够空白，让偶遇真的发生。</p></article><article><span>03</span><h4>保存灵感</h4><p>把喜欢的地方变成下一次出发。</p></article></section>
+                  </main>
+                </div>
+              </div>
+              <pre class="code-view" id="code-view" hidden><code id="code-content"></code></pre>
+              <div class="design-hint" id="design-hint" hidden>Design mode · 点击预览中的标题或卡片进行编辑</div>
             </div>
           </section>
 
-          <section class="view-panel" id="board-view" data-panel="board">
-            <div class="section-intro">
-              <div><p class="eyebrow">Execution map</p><h2>把计划推过终点线</h2></div>
-              <div class="progress-copy"><strong id="board-progress">0%</strong><span>整体进度</span></div>
-            </div>
-            <div class="progress-track" aria-hidden="true"><span id="progress-fill"></span></div>
-            <div class="kanban" id="kanban"></div>
-          </section>
-
-          <section class="view-panel" id="publish-view" data-panel="publish">
-            <div class="section-intro">
-              <div><p class="eyebrow">Ship room</p><h2>准备好，就让它被看见</h2></div>
-              <span class="readiness-pill" id="readiness-pill">检查中</span>
-            </div>
-            <div class="publish-grid">
-              <section class="panel checklist-panel">
-                <div class="panel-header"><div><p class="eyebrow">Delivery</p><h2>交付检查</h2></div></div>
-                <div id="delivery-checklist" class="delivery-checklist"></div>
-                <button class="primary-button full" id="download-snapshot-button" type="button">下载项目快照 <span>↓</span></button>
-              </section>
-              <section class="panel hosting-panel">
-                <div class="panel-header"><div><p class="eyebrow">Free hosting</p><h2>免费部署选择</h2></div><span class="recommend-tag">推荐</span></div>
-                <div class="hosting-choice featured">
-                  <div class="host-logo github-logo" aria-hidden="true">GH</div>
-                  <div><strong>GitHub Pages</strong><p>与公开源码同仓交付，零额外账号，推送即部署。</p></div>
-                  <span>当前方案</span>
-                </div>
-                <div class="hosting-choice">
-                  <div class="host-logo cloudflare-logo" aria-hidden="true">CF</div>
-                  <div><strong>Cloudflare Pages</strong><p>免费档每月 500 次构建，适合后续接入边缘能力。</p></div>
-                  <span>兼容</span>
-                </div>
-                <div class="delivery-links">
-                  <a href="https://github.com/BeanBunWang/atoms-demo" target="_blank" rel="noreferrer">查看源代码 <span>↗</span></a>
-                  <a href="https://beanbunwang.github.io/atoms-demo/" target="_blank" rel="noreferrer">打开在线 Demo <span>↗</span></a>
-                </div>
-              </section>
-            </div>
-          </section>
+          <aside class="activity-panel" aria-label="构建活动">
+            <header class="activity-tabs" role="tablist" aria-label="活动视图">
+              <button type="button" role="tab" data-rail="terminal" class="active">Terminal</button>
+              <button type="button" role="tab" data-rail="files">Files <span id="file-count">5</span></button>
+            </header>
+            <section class="agent-progress" id="agent-progress" aria-label="智能体进度"></section>
+            <section class="terminal" id="terminal"></section>
+            <section class="file-tree" id="file-tree" hidden></section>
+            <footer class="activity-footer"><span><i></i> Local runtime</span><span id="build-progress">100%</span></footer>
+          </aside>
         </main>
       </div>
     </div>
 
-    <div class="sidebar-scrim" id="sidebar-scrim"></div>
-
-    <dialog id="project-dialog" class="dialog-card">
-      <form id="project-form" method="dialog">
-        <div class="dialog-header">
-          <div><p class="eyebrow">New molecule</p><h2>组装一个新想法</h2></div>
-          <button class="icon-button close-dialog" type="button" aria-label="关闭">×</button>
-        </div>
-        <label>项目名称<input name="title" maxlength="48" required placeholder="例如：周末城市漫游指南" /></label>
-        <label>核心目标<textarea name="brief" rows="4" maxlength="500" required placeholder="为谁解决什么问题？理想结果是什么？"></textarea></label>
-        <label>目标用户<input name="audience" maxlength="60" required placeholder="例如：想轻松规划短途旅行的上班族" /></label>
-        <fieldset>
-          <legend>执行模式</legend>
-          <div class="mode-options" id="dialog-mode-options"></div>
-        </fieldset>
-        <div class="dialog-actions">
-          <button class="secondary-button close-dialog" type="button">取消</button>
-          <button class="primary-button" type="submit">创建并召集团队 <span>↗</span></button>
-        </div>
+    <dialog class="dialog-card" id="new-project-dialog">
+      <form id="new-project-form">
+        <div class="dialog-header"><div><span>NEW WORKSPACE</span><h2>What should Atoms build?</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></div>
+        <label>Project name<input name="title" maxlength="36" placeholder="例如：微习惯" /></label>
+        <label>Describe the app<textarea name="prompt" rows="5" maxlength="500" required placeholder="目标用户是谁？最重要的使用场景是什么？"></textarea></label>
+        <fieldset><legend>Build mode</legend><div class="dialog-modes" id="dialog-modes"></div></fieldset>
+        <div class="dialog-actions"><button class="quiet-button" type="button" data-close-dialog>Cancel</button><button class="approve-button" type="submit">Create plan →</button></div>
       </form>
     </dialog>
 
-    <dialog id="profile-dialog" class="dialog-card small-dialog">
-      <form id="profile-form" method="dialog">
-        <div class="dialog-header">
-          <div><p class="eyebrow">Local profile</p><h2>你的工作区</h2></div>
-          <button class="icon-button close-profile" type="button" aria-label="关闭">×</button>
-        </div>
-        <label>显示名称<input name="name" maxlength="24" required /></label>
-        <label>你的角色<input name="role" maxlength="36" placeholder="例如：独立产品设计师" /></label>
-        <p class="privacy-note">所有内容只保存在这台设备的浏览器中，不会上传。</p>
-        <button class="secondary-button full-width" id="import-snapshot-button" type="button">从 JSON 恢复项目快照</button>
-        <div class="dialog-actions split-actions">
-          <button class="danger-text-button" id="reset-data-button" type="button">清空本地数据</button>
-          <button class="primary-button" type="submit">保存</button>
-        </div>
+    <dialog class="dialog-card design-dialog" id="design-dialog">
+      <form id="design-form">
+        <div class="dialog-header"><div><span>VISUAL EDIT</span><h2>Edit selected section</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></div>
+        <label>App title<input name="title" maxlength="36" required /></label>
+        <label>Supporting text<textarea name="subtitle" rows="3" maxlength="120" required></textarea></label>
+        <label>Accent color<input name="accent" type="color" /></label>
+        <div class="dialog-actions"><button class="quiet-button" type="button" data-close-dialog>Cancel</button><button class="approve-button" type="submit">Apply to preview</button></div>
       </form>
     </dialog>
 
-    <input type="file" id="import-input" accept="application/json" hidden />
+    <dialog class="dialog-card publish-dialog" id="publish-dialog">
+      <div class="dialog-header"><div><span>DEMO PUBLISH</span><h2 id="publish-dialog-title">Ready to publish</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="publish-summary" id="publish-summary"></div>
+      <button class="approve-button full" id="confirm-publish-button" type="button">Publish demo preview</button>
+      <p class="dialog-note">此操作只模拟发布状态，不会创建真实云资源。</p>
+    </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
     <script type="module" src="./js/app.js"></script>
   </body>
 </html>

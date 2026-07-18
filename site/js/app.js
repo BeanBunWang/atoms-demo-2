@@ -1,55 +1,74 @@
 import {
+  AGENTS,
   MODES,
-  advanceProject,
-  createProject,
-  cycleTaskStatus,
-  projectProgress,
-  restartProject
+  approvePlan,
+  buildProgress,
+  changeMode,
+  createWorkspace,
+  isComposerEmpty,
+  nextBuildStep,
+  publishWorkspace,
+  submitPrompt,
+  updatePreview
 } from "./planner.js";
-import { initialState, loadState, parseImportedState, saveState } from "./storage.js";
+import { initialState, loadState, saveState } from "./storage.js";
 
 let state = loadState();
-let draftMode = activeProject()?.mode || "team";
-let runTimer = null;
+let buildTimer = null;
 let toastTimer = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-
 const elements = {
-  body: document.body,
-  sidebar: $(".sidebar"),
+  sidebar: $("#sidebar"),
   sidebarScrim: $("#sidebar-scrim"),
   projectList: $("#project-list"),
-  projectTitle: $("#project-title"),
-  projectKicker: $("#project-kicker"),
-  briefInput: $("#brief-input"),
-  modeSwitcher: $("#mode-switcher"),
-  metricsGrid: $("#metrics-grid"),
-  agentTimeline: $("#agent-timeline"),
-  artifactTabs: $("#artifact-tabs"),
-  artifactContent: $("#artifact-content"),
-  pauseButton: $("#pause-button"),
-  taskCountBadge: $("#task-count-badge"),
-  kanban: $("#kanban"),
-  boardProgress: $("#board-progress"),
-  progressFill: $("#progress-fill"),
-  deliveryChecklist: $("#delivery-checklist"),
-  readinessPill: $("#readiness-pill"),
-  projectDialog: $("#project-dialog"),
-  projectForm: $("#project-form"),
-  dialogModeOptions: $("#dialog-mode-options"),
-  profileDialog: $("#profile-dialog"),
-  profileForm: $("#profile-form"),
-  profileAvatar: $("#profile-avatar"),
-  profileName: $("#profile-name"),
-  saveState: $("#save-state"),
-  importInput: $("#import-input"),
+  workspaceTitle: $("#workspace-title"),
+  workspaceStatus: $("#workspace-status"),
+  agentStack: $("#agent-stack"),
+  messageStream: $("#message-stream"),
+  planCard: $("#plan-card"),
+  planList: $("#plan-list"),
+  promptInput: $("#prompt-input"),
+  sendButton: $("#send-button"),
+  modeLabel: $("#mode-label"),
+  modeButtonLabel: $("#mode-button-label"),
+  modeMenu: $("#mode-menu"),
+  appFrame: $("#app-frame"),
+  generatedApp: $("#generated-app"),
+  previewBrand: $("#preview-brand"),
+  previewLogo: $("#preview-logo"),
+  previewTitle: $("#preview-title"),
+  previewSubtitle: $("#preview-subtitle"),
+  previewCardTitle: $("#preview-card-title"),
+  previewCardMeta: $("#preview-card-meta"),
+  previewCta: $("#preview-cta"),
+  codeView: $("#code-view"),
+  codeContent: $("#code-content"),
+  agentProgress: $("#agent-progress"),
+  terminal: $("#terminal"),
+  fileTree: $("#file-tree"),
+  fileCount: $("#file-count"),
+  buildProgress: $("#build-progress"),
+  designButton: $("#design-button"),
+  designHint: $("#design-hint"),
+  publishButton: $("#publish-button"),
+  conversationPanel: $("#conversation-panel"),
+  mobileViewToggle: $("#mobile-view-toggle"),
+  newProjectDialog: $("#new-project-dialog"),
+  newProjectForm: $("#new-project-form"),
+  dialogModes: $("#dialog-modes"),
+  designDialog: $("#design-dialog"),
+  designForm: $("#design-form"),
+  publishDialog: $("#publish-dialog"),
+  publishDialogTitle: $("#publish-dialog-title"),
+  publishSummary: $("#publish-summary"),
+  confirmPublishButton: $("#confirm-publish-button"),
   toast: $("#toast")
 };
 
-function activeProject() {
-  return state.projects.find((project) => project.id === state.activeProjectId) || state.projects[0];
+function activeWorkspace() {
+  return state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId) || state.workspaces[0];
 }
 
 function escapeHTML(value) {
@@ -61,24 +80,12 @@ function escapeHTML(value) {
     .replaceAll("'", "&#039;");
 }
 
-function relativeTime(value) {
-  const delta = Math.max(0, Date.now() - new Date(value).getTime());
-  const minutes = Math.floor(delta / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
+function persist() {
+  saveState(state);
 }
 
-function persist(message = "已自动保存") {
-  const ok = saveState(state);
-  elements.saveState.innerHTML = `<i></i> ${ok ? escapeHTML(message) : "保存失败"}`;
-  elements.saveState.classList.toggle("error", !ok);
-}
-
-function updateProject(updated) {
-  state.projects = state.projects.map((project) => (project.id === updated.id ? updated : project));
+function replaceWorkspace(workspace) {
+  state.workspaces = state.workspaces.map((item) => (item.id === workspace.id ? workspace : item));
   persist();
 }
 
@@ -86,402 +93,364 @@ function showToast(message) {
   clearTimeout(toastTimer);
   elements.toast.textContent = message;
   elements.toast.classList.add("visible");
-  toastTimer = setTimeout(() => elements.toast.classList.remove("visible"), 2600);
+  toastTimer = setTimeout(() => elements.toast.classList.remove("visible"), 2400);
 }
 
-function renderProjectList() {
-  elements.projectList.innerHTML = state.projects
-    .map((project) => {
-      const active = project.id === state.activeProjectId;
-      const mode = MODES[project.mode];
-      return `
-        <button type="button" class="project-link ${active ? "active" : ""}" data-project-id="${escapeHTML(project.id)}">
-          <span class="project-icon ${mode.accent}">${escapeHTML(project.title.slice(0, 1))}</span>
-          <span><strong>${escapeHTML(project.title)}</strong><small>${escapeHTML(mode.shortLabel)} · ${relativeTime(project.updatedAt)}</small></span>
-          <i class="project-status ${project.status}"></i>
-        </button>`;
-    })
-    .join("");
+function phaseLabel(workspace) {
+  if (workspace.published) return "Published";
+  return { "plan-review": "Plan review", building: "Building", ready: "Ready" }[workspace.phase] || "Draft";
 }
 
-function renderModeSwitcher() {
-  elements.modeSwitcher.innerHTML = Object.entries(MODES)
+function renderProjects() {
+  elements.projectList.innerHTML = state.workspaces
     .map(
-      ([key, mode]) => `
-        <button type="button" class="mode-chip ${draftMode === key ? "active" : ""}" data-mode="${key}" title="${escapeHTML(mode.description)}">
-          ${escapeHTML(mode.shortLabel)}
+      (workspace) => `
+        <button type="button" class="project-item ${workspace.id === state.activeWorkspaceId ? "active" : ""}" data-workspace-id="${escapeHTML(workspace.id)}">
+          <span class="project-thumb">${escapeHTML(workspace.title.slice(0, 1).toUpperCase())}</span>
+          <span><strong>${escapeHTML(workspace.title)}</strong><small>${escapeHTML(MODES[workspace.mode].label)} · ${escapeHTML(phaseLabel(workspace))}</small></span>
+          <i class="project-state ${workspace.published ? "published" : escapeHTML(workspace.phase)}"></i>
         </button>`
     )
     .join("");
 }
 
-function renderMetrics(project) {
-  const doneAgents = project.agents.filter((agent) => agent.status === "done").length;
-  const progress = projectProgress(project);
-  const taskDone = project.tasks.filter((task) => task.status === "已完成").length;
-  elements.metricsGrid.innerHTML = `
-    <article><span>团队接力</span><strong>${doneAgents}<small> / ${project.agents.length}</small></strong><p>${project.status === "complete" ? "全员已交付" : "正在形成方案"}</p></article>
-    <article><span>项目进度</span><strong>${progress}<small>%</small></strong><p>${taskDone} 个任务已完成</p></article>
-    <article><span>执行模式</span><strong class="word-metric">${escapeHTML(MODES[project.mode].shortLabel)}</strong><p>${escapeHTML(MODES[project.mode].description)}</p></article>
-  `;
-}
-
-function renderAgents(project) {
-  const statusText = { done: "已交付", active: "工作中", waiting: "等待中" };
-  elements.agentTimeline.innerHTML = project.agents
-    .map(
-      (agent, index) => `
-        <article class="agent-row ${agent.status}">
-          <div class="agent-order">${String(index + 1).padStart(2, "0")}</div>
-          <div class="agent-avatar ${agent.tone}">${escapeHTML(agent.glyph)}</div>
-          <div class="agent-copy">
-            <div><strong>${escapeHTML(agent.name)}</strong><span>${escapeHTML(agent.role)}</span></div>
-            <p>${escapeHTML(agent.message)}</p>
-          </div>
-          <span class="agent-state">${statusText[agent.status]}</span>
-        </article>`
-    )
+function renderHeader(workspace) {
+  elements.workspaceTitle.textContent = workspace.title;
+  elements.workspaceStatus.textContent = phaseLabel(workspace);
+  elements.workspaceStatus.style.color = workspace.phase === "building" ? "var(--blue)" : "";
+  elements.modeLabel.textContent = `${MODES[workspace.mode].label} mode`;
+  elements.modeButtonLabel.textContent = MODES[workspace.mode].label;
+  elements.publishButton.disabled = workspace.phase !== "ready";
+  elements.publishButton.innerHTML = workspace.published ? "Published <span>✓</span>" : "Publish <span>↗</span>";
+  elements.agentStack.innerHTML = workspace.agents
+    .slice(0, 6)
+    .map((agent) => `<img src="${escapeHTML(agent.avatar)}" alt="${escapeHTML(agent.name)}" title="${escapeHTML(agent.name)} · ${escapeHTML(agent.role)}" />`)
     .join("");
-  elements.pauseButton.textContent = project.paused ? "继续" : "暂停";
-  elements.pauseButton.disabled = project.status === "complete";
 }
 
-function renderArtifacts(project) {
-  const visibleAgents = project.agents.filter((agent) => agent.status !== "waiting");
-  let selectedKey = state.activeArtifactByProject[project.id];
-  if (!visibleAgents.some((agent) => agent.key === selectedKey)) {
-    selectedKey = visibleAgents.at(-1)?.key || project.agents[0].key;
-    state.activeArtifactByProject[project.id] = selectedKey;
-  }
-
-  elements.artifactTabs.innerHTML = project.agents
-    .map(
-      (agent) => `
-        <button type="button" role="tab" data-agent-key="${agent.key}" aria-selected="${selectedKey === agent.key}" ${agent.status === "waiting" ? "disabled" : ""}>
-          ${escapeHTML(agent.name)}
-        </button>`
-    )
-    .join("");
-
-  const agent = project.agents.find((item) => item.key === selectedKey) || project.agents[0];
-  if (agent.status === "active") {
-    elements.artifactContent.innerHTML = `
-      <div class="artifact-loading">
-        <span class="loading-orbit" aria-hidden="true"><i></i></span>
-        <p class="eyebrow">${escapeHTML(agent.name)} 正在工作</p>
-        <h3>正在把上下文整理成清晰的交付物</h3>
-        <p>结果会在这一轮接力完成后自动出现。</p>
-      </div>`;
-    return;
-  }
-
-  const deliverable = agent.deliverable;
-  elements.artifactContent.innerHTML = `
-    <div class="artifact-meta"><span>${escapeHTML(agent.role)}</span><span>${relativeTime(project.updatedAt)}</span></div>
-    <h3>${escapeHTML(deliverable.title)}</h3>
-    <p class="artifact-summary">${escapeHTML(deliverable.summary)}</p>
-    <div class="artifact-sections">
-      ${deliverable.sections
-        .map(
-          ([label, text]) => `<section><span>${escapeHTML(label)}</span><p>${escapeHTML(text)}</p></section>`
-        )
-        .join("")}
-    </div>
-  `;
-}
-
-function renderBoard(project) {
-  const groups = ["待开始", "进行中", "已完成"];
-  const labels = { 待开始: "Backlog", 进行中: "In motion", 已完成: "Shipped" };
-  elements.kanban.innerHTML = groups
-    .map((status) => {
-      const tasks = project.tasks.filter((task) => task.status === status);
-      return `
-        <section class="kanban-column" data-status="${status}">
-          <div class="column-heading"><div><i></i><strong>${status}</strong><span>${labels[status]}</span></div><b>${tasks.length}</b></div>
-          <div class="task-stack">
-            ${tasks.length ? tasks.map(renderTask).join("") : '<div class="empty-column">这里已经清空了</div>'}
-          </div>
-        </section>`;
+function renderMessages(workspace) {
+  const nearBottom = elements.messageStream.scrollHeight - elements.messageStream.scrollTop - elements.messageStream.clientHeight < 80;
+  elements.messageStream.innerHTML = workspace.messages
+    .map((message) => {
+      if (message.role === "system") {
+        return `<article class="message system"><div class="message-body"><div class="message-bubble">${escapeHTML(message.text)}</div></div></article>`;
+      }
+      const agent = message.agent ? AGENTS.find((item) => item.key === message.agent) : null;
+      const isUser = message.role === "user";
+      return `<article class="message ${isUser ? "user" : "agent"}">
+        <div class="message-avatar">${isUser ? "TW" : `<img src="${escapeHTML(agent?.avatar || AGENTS[0].avatar)}" alt="" />`}</div>
+        <div class="message-body"><div class="message-meta"><strong>${isUser ? "You" : escapeHTML(agent?.name || "Atoms")}</strong><span>${isUser ? "" : escapeHTML(agent?.role || "Agent")}</span></div><div class="message-bubble">${escapeHTML(message.text)}</div></div>
+      </article>`;
     })
     .join("");
+  if (nearBottom) elements.messageStream.scrollTop = elements.messageStream.scrollHeight;
 
-  const progress = projectProgress(project);
-  elements.boardProgress.textContent = `${progress}%`;
-  elements.progressFill.style.width = `${progress}%`;
-  elements.taskCountBadge.textContent = project.tasks.filter((task) => task.status !== "已完成").length;
+  elements.planCard.hidden = workspace.phase !== "plan-review";
+  elements.planList.innerHTML = workspace.plan
+    .map((step, index) => `<div class="plan-step"><span>${index + 1}</span><div><strong>${escapeHTML(step.title)}</strong><p>${escapeHTML(step.detail)}</p></div></div>`)
+    .join("");
 }
 
-function renderTask(task) {
-  return `
-    <article class="task-card">
-      <div class="task-topline"><span class="priority ${task.priority.toLowerCase()}">${task.priority}</span><span>${escapeHTML(task.owner)}</span></div>
-      <h3>${escapeHTML(task.title)}</h3>
-      <button type="button" data-task-id="${escapeHTML(task.id)}" aria-label="推进任务：${escapeHTML(task.title)}">
-        推进状态 <span aria-hidden="true">→</span>
-      </button>
-    </article>`;
+function renderPreview(workspace) {
+  const preview = workspace.preview;
+  elements.generatedApp.style.setProperty("--preview-accent", preview.accent);
+  elements.previewBrand.textContent = preview.title;
+  elements.previewLogo.textContent = preview.title.slice(0, 1).toUpperCase();
+  elements.previewTitle.textContent = preview.title;
+  elements.previewSubtitle.textContent = preview.subtitle;
+  elements.previewCardTitle.textContent = preview.cardTitle;
+  elements.previewCardMeta.textContent = preview.cardMeta;
+  elements.previewCta.innerHTML = `${escapeHTML(preview.button)} <span>→</span>`;
+  elements.codeContent.textContent = workspace.code;
+  elements.appFrame.className = `app-frame ${state.device}`;
+  elements.generatedApp.classList.toggle("design-active", state.designMode);
+  elements.designButton.classList.toggle("active", state.designMode);
+  elements.designHint.hidden = !state.designMode;
 }
 
-function renderPublish(project) {
-  const progress = projectProgress(project);
-  const checks = [
-    ["核心主流程可操作", project.status === "complete", "智能体已完成全部交付"],
-    ["数据可持久化", true, "浏览器本地自动保存"],
-    ["任务执行有闭环", progress === 100, `${progress}% 的任务已完成`],
-    ["可导出与恢复", true, "支持 JSON 项目快照"],
-    ["在线地址与源码公开", true, "GitHub Pages 自动部署"]
-  ];
-  const passed = checks.filter(([, ok]) => ok).length;
-  elements.deliveryChecklist.innerHTML = checks
+function renderActivity(workspace) {
+  const statusLabel = { done: "✓ Done", active: "● Working", waiting: "Waiting" };
+  elements.agentProgress.innerHTML = workspace.agents
     .map(
-      ([label, ok, detail]) => `
-        <div class="check-row ${ok ? "passed" : "pending"}">
-          <span aria-hidden="true">${ok ? "✓" : "○"}</span>
-          <div><strong>${escapeHTML(label)}</strong><small>${escapeHTML(detail)}</small></div>
-          <b>${ok ? "通过" : "待完成"}</b>
-        </div>`
+      (agent) => `<div class="agent-progress-row ${escapeHTML(agent.status)}"><img src="${escapeHTML(agent.avatar)}" alt="" /><span><strong>${escapeHTML(agent.name)}</strong><small>${escapeHTML(agent.message)}</small></span><b>${statusLabel[agent.status]}</b></div>`
     )
     .join("");
-  elements.readinessPill.textContent = passed === checks.length ? "可以发布" : `${passed} / ${checks.length} 就绪`;
-  elements.readinessPill.classList.toggle("ready", passed === checks.length);
+  elements.terminal.innerHTML = workspace.logs
+    .map((log) => `<div class="terminal-line ${escapeHTML(log.level)}"><time>${escapeHTML(log.time)}</time><span>${escapeHTML(log.text)}</span></div>`)
+    .join("");
+  elements.fileTree.innerHTML = `<div class="file-folder">⌄ project / src</div>${workspace.files
+    .map((file) => `<div class="file-row ${escapeHTML(file.status)}"><span>${file.type === "css" ? "#" : file.type === "jsx" ? "⚛" : "◇"}</span><span>${escapeHTML(file.path)}</span><b>${file.status === "added" ? "A" : file.status === "modified" ? "M" : ""}</b></div>`)
+    .join("")}`;
+  elements.fileCount.textContent = workspace.files.length;
+  elements.buildProgress.textContent = `${buildProgress(workspace)}%`;
+  const useFiles = state.activeRail === "files";
+  elements.terminal.hidden = useFiles;
+  elements.fileTree.hidden = !useFiles;
+  $$("[data-rail]").forEach((button) => button.classList.toggle("active", button.dataset.rail === state.activeRail));
 }
 
-function renderProfile() {
-  const name = state.profile?.name || "体验者";
-  elements.profileName.textContent = name;
-  elements.profileAvatar.textContent = name.slice(0, 1);
-  elements.profileForm.elements.name.value = name;
-  elements.profileForm.elements.role.value = state.profile?.role || "";
-}
-
-function renderView() {
-  $$(".view-tabs button").forEach((button) => button.classList.toggle("active", button.dataset.view === state.activeView));
-  $$(".view-panel").forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === state.activeView));
-}
-
-function renderAll({ preserveBrief = false } = {}) {
-  const project = activeProject();
-  if (!project) return;
-  document.documentElement.dataset.theme = state.theme;
-  elements.projectTitle.textContent = project.title;
-  elements.projectKicker.textContent = project.status === "complete" ? "本轮交付完成" : project.paused ? "协作已暂停" : "团队正在协作";
-  if (!preserveBrief) elements.briefInput.value = project.brief;
-  renderProjectList();
-  renderModeSwitcher();
-  renderMetrics(project);
-  renderAgents(project);
-  renderArtifacts(project);
-  renderBoard(project);
-  renderPublish(project);
-  renderProfile();
-  renderView();
-  syncRunLoop();
-}
-
-function syncRunLoop() {
-  clearTimeout(runTimer);
-  const project = activeProject();
-  if (!project || project.status !== "running" || project.paused) return;
-  runTimer = setTimeout(() => {
-    const current = activeProject();
-    const updated = advanceProject(current);
-    updateProject(updated);
-    const newlyDone = updated.agents.filter((agent) => agent.status === "done").at(-1);
-    state.activeArtifactByProject[updated.id] = newlyDone?.key || updated.agents[0].key;
-    renderAll();
-    if (updated.status === "complete") showToast("团队接力完成，交付物已汇总");
-  }, 1200);
-}
-
-function renderDialogModes() {
-  elements.dialogModeOptions.innerHTML = Object.entries(MODES)
+function renderModeMenus(workspace) {
+  const icons = { build: "⚒", team: "◎", race: "↯", research: "⌕" };
+  elements.modeMenu.innerHTML = Object.entries(MODES)
     .map(
-      ([key, mode], index) => `
-        <label class="mode-option">
-          <input type="radio" name="mode" value="${key}" ${index === 0 ? "checked" : ""} />
-          <span class="mode-option-dot ${mode.accent}"></span>
-          <span><strong>${escapeHTML(mode.label)}</strong><small>${escapeHTML(mode.description)}</small></span>
-          <i>✓</i>
-        </label>`
+      ([key, mode]) => `<button type="button" class="mode-option ${workspace.mode === key ? "active" : ""}" data-mode="${key}"><span>${icons[key]}</span><span><strong>${mode.label}</strong><small>${mode.description}</small></span><b>${workspace.mode === key ? "✓" : ""}</b></button>`
+    )
+    .join("");
+  elements.dialogModes.innerHTML = Object.entries(MODES)
+    .map(
+      ([key, mode], index) => `<label class="dialog-mode"><input type="radio" name="mode" value="${key}" ${index === 1 ? "checked" : ""} /><span><strong>${mode.label}</strong><small>${mode.description}</small></span></label>`
     )
     .join("");
 }
 
-function openProjectDialog() {
-  elements.projectForm.reset();
-  const teamRadio = elements.projectForm.querySelector('input[value="team"]');
-  if (teamRadio) teamRadio.checked = true;
-  elements.projectDialog.showModal();
-  requestAnimationFrame(() => elements.projectForm.elements.title.focus());
+function render() {
+  const workspace = activeWorkspace();
+  if (!workspace) return;
+  renderProjects();
+  renderHeader(workspace);
+  renderMessages(workspace);
+  renderPreview(workspace);
+  renderActivity(workspace);
+  renderModeMenus(workspace);
+  syncComposerState();
 }
 
-function closeSidebar() {
-  elements.sidebar.classList.remove("mobile-open");
-  elements.sidebarScrim.classList.remove("visible");
+function syncComposerState() {
+  const hasValue = !isComposerEmpty(elements.promptInput.value);
+  elements.promptInput.classList.toggle("has-value", hasValue);
+  elements.promptInput.dataset.empty = String(!hasValue);
+  elements.sendButton.disabled = !hasValue;
 }
 
-function downloadSnapshot() {
+function startBuildLoop(workspaceId = activeWorkspace().id) {
+  clearInterval(buildTimer);
+  buildTimer = setInterval(() => {
+    const workspace = state.workspaces.find((item) => item.id === workspaceId);
+    if (!workspace) {
+      clearInterval(buildTimer);
+      return;
+    }
+    if (workspace.phase !== "building") {
+      clearInterval(buildTimer);
+      return;
+    }
+    const next = nextBuildStep(workspace);
+    replaceWorkspace(next);
+    if (state.activeWorkspaceId === workspaceId) render();
+    if (next.phase === "ready") {
+      clearInterval(buildTimer);
+      if (state.activeWorkspaceId === workspaceId) showToast("Build complete · 应用预览已更新");
+    }
+  }, 650);
+}
+
+function showNewProjectDialog() {
+  elements.newProjectForm.reset();
+  elements.newProjectDialog.showModal();
+  setTimeout(() => elements.newProjectForm.elements.prompt.focus(), 50);
+}
+
+function exportWorkspace() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `molecule-${activeProject().title.replace(/[^\w\u4e00-\u9fa5-]+/g, "-")}.json`;
-  anchor.click();
-  URL.revokeObjectURL(url);
-  showToast("项目快照已下载");
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `atoms-demo-${activeWorkspace().id}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast("工作区快照已导出");
 }
 
-elements.projectList.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-project-id]");
-  if (!button) return;
-  state.activeProjectId = button.dataset.projectId;
-  draftMode = activeProject().mode;
-  persist();
-  closeSidebar();
-  renderAll();
+function openPublishDialog() {
+  const workspace = activeWorkspace();
+  elements.publishDialogTitle.textContent = workspace.published ? "Preview is live" : "Ready to publish";
+  elements.publishSummary.innerHTML = `
+    <div class="publish-row"><span>Build</span><b>${buildProgress(workspace)}% complete</b></div>
+    <div class="publish-row"><span>Runtime</span><b>Static local demo</b></div>
+    <div class="publish-row"><span>Target</span><b>Simulated preview URL</b></div>`;
+  elements.confirmPublishButton.textContent = workspace.published ? "Publish again" : "Publish demo preview";
+  elements.confirmPublishButton.disabled = workspace.phase !== "ready";
+  elements.publishDialog.showModal();
+}
+
+function standalonePreview(workspace) {
+  const p = workspace.preview;
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(p.title)}</title><style>body{margin:0;background:#fffdf9;color:#222;font-family:system-ui}main{max-width:760px;margin:auto;padding:10vh 24px}small{color:${escapeHTML(p.accent)};font-weight:800;letter-spacing:.15em}h1{font:500 clamp(48px,9vw,88px)/.95 Georgia;margin:16px 0}p{max-width:520px;color:#777;line-height:1.7}.card{margin-top:52px;padding:38px;border:1px solid #e7ded4;background:#fff}button{margin-top:20px;padding:12px 18px;border:0;background:${escapeHTML(p.accent)};color:white}</style><main><small>ATOM DEMO PREVIEW</small><h1>${escapeHTML(p.title)}</h1><p>${escapeHTML(p.subtitle)}</p><div class="card"><h2>${escapeHTML(p.cardTitle)}</h2><p>${escapeHTML(p.cardMeta)}</p><button>${escapeHTML(p.button)} →</button></div></main>`;
+}
+
+elements.promptInput.addEventListener("input", syncComposerState);
+$("#composer-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (isComposerEmpty(elements.promptInput.value)) return;
+  const updated = submitPrompt(activeWorkspace(), elements.promptInput.value);
+  replaceWorkspace(updated);
+  elements.promptInput.value = "";
+  render();
+  showToast("Mike 已生成变更计划");
 });
 
-elements.modeSwitcher.addEventListener("click", (event) => {
+$("#approve-plan-button").addEventListener("click", () => {
+  const workspace = approvePlan(activeWorkspace());
+  replaceWorkspace(workspace);
+  render();
+  startBuildLoop();
+});
+
+$("#revise-plan-button").addEventListener("click", () => {
+  elements.promptInput.value = "请调整计划：";
+  syncComposerState();
+  elements.promptInput.focus();
+});
+
+$("#mode-button").addEventListener("click", () => {
+  elements.modeMenu.hidden = !elements.modeMenu.hidden;
+});
+elements.modeMenu.addEventListener("click", (event) => {
   const button = event.target.closest("[data-mode]");
   if (!button) return;
-  draftMode = button.dataset.mode;
-  renderModeSwitcher();
+  const updated = changeMode(activeWorkspace(), button.dataset.mode);
+  replaceWorkspace(updated);
+  elements.modeMenu.hidden = true;
+  render();
+  showToast(`已切换到 ${MODES[button.dataset.mode].label} mode`);
 });
 
-elements.artifactTabs.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-agent-key]");
-  if (!button || button.disabled) return;
-  state.activeArtifactByProject[activeProject().id] = button.dataset.agentKey;
-  persist();
-  renderArtifacts(activeProject());
-});
-
-elements.kanban.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-task-id]");
+elements.projectList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-workspace-id]");
   if (!button) return;
-  const project = activeProject();
-  const tasks = project.tasks.map((task) =>
-    task.id === button.dataset.taskId ? { ...task, status: cycleTaskStatus(task.status) } : task
-  );
-  updateProject({ ...project, tasks, updatedAt: new Date().toISOString() });
-  renderAll({ preserveBrief: true });
-  showToast("任务状态已推进");
+  state.activeWorkspaceId = button.dataset.workspaceId;
+  state.designMode = false;
+  persist();
+  render();
+  if (activeWorkspace().phase === "building") startBuildLoop(activeWorkspace().id);
+  elements.sidebar.classList.remove("open");
+  elements.sidebarScrim.classList.remove("visible");
 });
 
-$("#run-team-button").addEventListener("click", () => {
-  const brief = elements.briefInput.value.trim();
-  if (brief.length < 8) {
-    elements.briefInput.focus();
-    showToast("再多写一点目标或用户，团队会做得更好");
+$("#new-project-button").addEventListener("click", showNewProjectDialog);
+$("#restart-button").addEventListener("click", showNewProjectDialog);
+elements.newProjectForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = new FormData(elements.newProjectForm);
+  const workspace = createWorkspace({ title: data.get("title"), prompt: data.get("prompt"), mode: data.get("mode") });
+  state.workspaces = [workspace, ...state.workspaces];
+  state.activeWorkspaceId = workspace.id;
+  state.designMode = false;
+  persist();
+  elements.newProjectDialog.close();
+  render();
+  showToast("计划已生成，请确认后开始构建");
+});
+
+$$('[data-close-dialog]').forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
+$$('[data-panel]').forEach((button) =>
+  button.addEventListener("click", () => {
+    state.activePanel = button.dataset.panel;
+    persist();
+    $$('[data-panel]').forEach((item) => item.classList.toggle("active", item.dataset.panel === state.activePanel));
+    elements.appFrame.hidden = state.activePanel !== "preview";
+    elements.codeView.hidden = state.activePanel !== "code";
+  })
+);
+$$('[data-device]').forEach((button) =>
+  button.addEventListener("click", () => {
+    state.device = button.dataset.device;
+    persist();
+    $$('[data-device]').forEach((item) => item.classList.toggle("active", item.dataset.device === state.device));
+    renderPreview(activeWorkspace());
+  })
+);
+$$('[data-rail]').forEach((button) =>
+  button.addEventListener("click", () => {
+    state.activeRail = button.dataset.rail;
+    persist();
+    renderActivity(activeWorkspace());
+  })
+);
+
+elements.designButton.addEventListener("click", () => {
+  state.designMode = !state.designMode;
+  persist();
+  renderPreview(activeWorkspace());
+  showToast(state.designMode ? "Design mode 已开启，点击预览元素编辑" : "Design mode 已关闭");
+});
+elements.generatedApp.addEventListener("click", (event) => {
+  if (!state.designMode || !event.target.closest("[data-edit-target]")) return;
+  const preview = activeWorkspace().preview;
+  elements.designForm.elements.title.value = preview.title;
+  elements.designForm.elements.subtitle.value = preview.subtitle;
+  elements.designForm.elements.accent.value = preview.accent;
+  elements.designDialog.showModal();
+});
+elements.designForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const data = new FormData(elements.designForm);
+  const workspace = updatePreview(activeWorkspace(), { title: data.get("title"), subtitle: data.get("subtitle"), accent: data.get("accent") });
+  replaceWorkspace(workspace);
+  elements.designDialog.close();
+  render();
+  showToast("可视编辑已同步到 Preview 与 Code");
+});
+
+elements.publishButton.addEventListener("click", openPublishDialog);
+elements.confirmPublishButton.addEventListener("click", () => {
+  const workspace = publishWorkspace(activeWorkspace());
+  replaceWorkspace(workspace);
+  elements.publishDialog.close();
+  render();
+  showToast("Demo preview 已发布（模拟）");
+});
+$("#share-button").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(location.href); showToast("当前地址已复制"); }
+  catch { showToast("请从浏览器地址栏复制当前地址"); }
+});
+$("#attachment-button").addEventListener("click", () => showToast("静态 Demo 暂不上传文件；生产版应接入安全文件存储"));
+$$('[data-nav]').forEach((button) => button.addEventListener("click", () => {
+  if (button.dataset.nav === "home") return showNewProjectDialog();
+  if (button.dataset.nav === "resources") {
+    window.open("https://help.atoms.dev/zh-CN/", "_blank", "noopener,noreferrer");
     return;
   }
-  const restarted = restartProject(activeProject(), brief, draftMode);
-  state.activeArtifactByProject[restarted.id] = restarted.agents[0].key;
-  updateProject(restarted);
-  renderAll();
-  showToast(`${MODES[draftMode].label}已开始工作`);
+  elements.projectList.querySelector(".project-item")?.focus();
+}));
+$("#export-button").addEventListener("click", exportWorkspace);
+$("#refresh-button").addEventListener("click", () => {
+  elements.appFrame.animate([{ opacity: .45 }, { opacity: 1 }], { duration: 260 });
+  showToast("Preview refreshed");
+});
+$("#open-preview-button").addEventListener("click", () => {
+  const blob = new Blob([standalonePreview(activeWorkspace())], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank", "noopener,noreferrer");
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 });
 
-elements.pauseButton.addEventListener("click", () => {
-  const project = activeProject();
-  if (project.status === "complete") return;
-  updateProject({ ...project, paused: !project.paused, updatedAt: new Date().toISOString() });
-  renderAll({ preserveBrief: true });
-  showToast(project.paused ? "团队已继续工作" : "团队已暂停");
-});
-
-$$(".view-tabs button").forEach((button) => {
-  button.addEventListener("click", () => {
-    state.activeView = button.dataset.view;
-    persist();
-    renderView();
-  });
-});
-
-$("#new-project-button").addEventListener("click", openProjectDialog);
-$("#mobile-menu-button").addEventListener("click", () => {
-  elements.sidebar.classList.add("mobile-open");
+$("#mobile-menu").addEventListener("click", () => {
+  elements.sidebar.classList.add("open");
   elements.sidebarScrim.classList.add("visible");
 });
-elements.sidebarScrim.addEventListener("click", closeSidebar);
-
-$$(".close-dialog").forEach((button) => button.addEventListener("click", () => elements.projectDialog.close()));
-$$(".close-profile").forEach((button) => button.addEventListener("click", () => elements.profileDialog.close()));
-
-elements.projectForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const formData = new FormData(elements.projectForm);
-  const project = createProject(Object.fromEntries(formData));
-  state.projects.unshift(project);
-  state.activeProjectId = project.id;
-  state.activeArtifactByProject[project.id] = project.agents[0].key;
-  state.activeView = "studio";
-  draftMode = project.mode;
-  persist();
-  elements.projectDialog.close();
-  renderAll();
-  showToast("新项目已创建，团队开始接力");
+elements.mobileViewToggle.addEventListener("click", () => {
+  const previewOpen = elements.conversationPanel.classList.toggle("preview-mobile");
+  elements.mobileViewToggle.textContent = previewOpen ? "Chat" : "Preview";
+});
+elements.sidebarScrim.addEventListener("click", () => {
+  elements.sidebar.classList.remove("open");
+  elements.sidebarScrim.classList.remove("visible");
 });
 
-$("#profile-button").addEventListener("click", () => elements.profileDialog.showModal());
-elements.profileForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const formData = new FormData(elements.profileForm);
-  state.profile = { name: formData.get("name").trim(), role: formData.get("role").trim() };
-  persist();
-  elements.profileDialog.close();
-  renderProfile();
-  showToast("工作区资料已保存");
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".mode-menu-wrap")) elements.modeMenu.hidden = true;
 });
-
-$("#reset-data-button").addEventListener("click", () => {
-  if (!window.confirm("确定清空全部本地项目并恢复演示数据吗？")) return;
-  state = initialState();
-  draftMode = activeProject().mode;
-  persist();
-  elements.profileDialog.close();
-  renderAll();
-  showToast("已恢复初始工作区");
-});
-
-$("#theme-button").addEventListener("click", () => {
-  state.theme = state.theme === "light" ? "dark" : "light";
-  persist();
-  renderAll({ preserveBrief: true });
-});
-
-$("#export-button").addEventListener("click", downloadSnapshot);
-$("#download-snapshot-button").addEventListener("click", downloadSnapshot);
-$("#import-snapshot-button").addEventListener("click", () => elements.importInput.click());
-
-elements.importInput.addEventListener("change", async () => {
-  const [file] = elements.importInput.files;
-  if (!file) return;
-  try {
-    state = parseImportedState(await file.text());
-    draftMode = activeProject().mode;
-    persist("导入完成");
-    renderAll();
-    showToast("项目快照已恢复");
-  } catch (error) {
-    showToast(error.message || "导入失败");
-  } finally {
-    elements.importInput.value = "";
-  }
-});
-
 document.addEventListener("keydown", (event) => {
-  if (event.key.toLowerCase() !== "n" || event.metaKey || event.ctrlKey || event.altKey) return;
-  if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
-  event.preventDefault();
-  openProjectDialog();
+  if (event.key === "Escape") elements.modeMenu.hidden = true;
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !elements.sendButton.disabled) $("#composer-form").requestSubmit();
 });
 
-renderDialogModes();
-renderAll();
-persist();
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
 
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
-}
+render();
+$$('[data-panel]').forEach((item) => item.classList.toggle("active", item.dataset.panel === state.activePanel));
+elements.appFrame.hidden = state.activePanel !== "preview";
+elements.codeView.hidden = state.activePanel !== "code";
+$$('[data-device]').forEach((item) => item.classList.toggle("active", item.dataset.device === state.device));
+if (activeWorkspace().phase === "building") startBuildLoop(activeWorkspace().id);

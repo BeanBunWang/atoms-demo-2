@@ -1,17 +1,17 @@
 {
-  "name": "Molecule · 分子工坊",
-  "short_name": "Molecule",
-  "description": "把一句想法变成可执行项目的多智能体工作台",
+  "name": "Atoms Demo · AI App Builder",
+  "short_name": "Atoms Demo",
+  "description": "从一句需求到计划、构建、预览与发布的 Atoms-like 工作台",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#f4f1e8",
-  "theme_color": "#171915",
+  "background_color": "#f5f5f6",
+  "theme_color": "#f5f5f6",
   "icons": [
     {
-      "src": "./assets/icon.svg",
+      "src": "./assets/atoms-mark.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

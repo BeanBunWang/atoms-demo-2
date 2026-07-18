@@ -1,275 +1,260 @@
 export const MODES = {
-  team: {
-    label: "团队模式",
-    shortLabel: "团队",
-    description: "完整协作，适合从 0 到 1",
-    accent: "lime",
-    agents: ["lead", "product", "research", "architecture", "engineer", "growth"]
-  },
-  engineer: {
-    label: "工程师模式",
-    shortLabel: "工程师",
-    description: "快速落地，聚焦技术实现",
-    accent: "coral",
-    agents: ["lead", "architecture", "engineer"]
-  },
-  race: {
-    label: "赛马模式",
-    shortLabel: "赛马",
-    description: "并行比较两条实现路线",
-    accent: "violet",
-    agents: ["lead", "product", "racerA", "racerB", "architecture"]
-  },
-  research: {
-    label: "深度研究",
-    shortLabel: "研究",
-    description: "先验证问题，再决定方向",
-    accent: "blue",
-    agents: ["lead", "research", "product", "architecture"]
-  }
+  build: { label: "Build", description: "Alex 主导，快速完成可运行版本", agents: ["mike", "emma", "alex", "david"] },
+  team: { label: "Team", description: "产品、架构、工程和数据协作", agents: ["mike", "emma", "bob", "alex", "david"] },
+  race: { label: "Race", description: "两条实现路线并行比较", agents: ["mike", "emma", "bob", "alex", "adrian", "david"] },
+  research: { label: "Research", description: "Iris 与 Sarah 先完成调研", agents: ["mike", "iris", "sarah", "emma", "bob"] }
 };
 
-const AGENTS = {
-  lead: { name: "Mike", role: "团队负责人", glyph: "M", tone: "lime" },
-  product: { name: "Emma", role: "产品经理", glyph: "E", tone: "coral" },
-  research: { name: "Iris", role: "研究员", glyph: "I", tone: "violet" },
-  architecture: { name: "Bob", role: "架构师", glyph: "B", tone: "blue" },
-  engineer: { name: "Alex", role: "工程师", glyph: "A", tone: "amber" },
-  growth: { name: "Sarah", role: "增长顾问", glyph: "S", tone: "pink" },
-  racerA: { name: "Nova", role: "路线 A 工程师", glyph: "N", tone: "coral" },
-  racerB: { name: "Echo", role: "路线 B 工程师", glyph: "E", tone: "blue" }
-};
-
-const TASK_BLUEPRINTS = [
-  ["梳理首屏价值主张", "Emma", "待开始"],
-  ["完成核心流程原型", "Alex", "进行中"],
-  ["验证本地数据持久化", "Bob", "待开始"],
-  ["补齐空状态与错误反馈", "Alex", "待开始"],
-  ["完成移动端可用性检查", "Emma", "待开始"],
-  ["整理发布说明与演示脚本", "Sarah", "待开始"]
+export const AGENTS = [
+  { key: "mike", name: "Mike", role: "Team Leader", avatar: "./assets/agents/mike.webp", action: "组织需求并维护交付节奏" },
+  { key: "emma", name: "Emma", role: "Product Manager", avatar: "./assets/agents/emma.webp", action: "梳理用户流程与验收标准" },
+  { key: "bob", name: "Bob", role: "Architect", avatar: "./assets/agents/bob.webp", action: "设计应用结构与数据边界" },
+  { key: "alex", name: "Alex", role: "Engineer", avatar: "./assets/agents/alex.webp", action: "编写组件、样式与交互" },
+  { key: "david", name: "David", role: "Data Analyst", avatar: "./assets/agents/david.webp", action: "验证关键指标与数据状态" },
+  { key: "iris", name: "Iris", role: "Deep Researcher", avatar: "./assets/agents/iris.webp", action: "研究目标用户与竞品模式" },
+  { key: "sarah", name: "Sarah", role: "SEO Specialist", avatar: "./assets/agents/sarah.webp", action: "优化页面信息结构与可发现性" },
+  { key: "adrian", name: "Adrian", role: "Ads Specialist", avatar: "./assets/agents/adrian.png", action: "比较增长落地方案" }
 ];
 
-export function makeId(prefix = "item") {
-  const random = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${prefix}-${random}`;
+const agentByKey = (key) => AGENTS.find((agent) => agent.key === key);
+const uniqueId = (prefix = "workspace") => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+export function isComposerEmpty(value) {
+  return String(value ?? "").trim().length === 0;
 }
 
-export function normalizeBrief(value = "") {
-  return String(value).replace(/\s+/g, " ").trim();
+function inferTitle(prompt) {
+  const cleaned = String(prompt)
+    .replace(/^(请|帮我|我想|给我|做一个|创建一个|开发一个|构建一个)+/g, "")
+    .replace(/[，。！？,.!?].*$/s, "")
+    .trim();
+  return (cleaned || "新应用").slice(0, 18);
 }
 
-export function extractKeywords(brief = "") {
-  const clean = normalizeBrief(brief)
-    .replace(/[，。！？、；：,.!?;:()（）]/g, " ")
-    .split(/\s+/)
-    .filter((word) => word.length > 1);
-  return [...new Set(clean)].slice(0, 5);
-}
-
-function shortBrief(brief) {
-  const clean = normalizeBrief(brief);
-  if (!clean) return "把模糊想法整理成清晰、可验证的产品";
-  return clean.length > 76 ? `${clean.slice(0, 76)}…` : clean;
-}
-
-function createDeliverable(agentKey, context) {
-  const { title, brief, audience, mode } = context;
-  const keywords = extractKeywords(brief);
-  const keywordText = keywords.length ? keywords.join("、") : "清晰、可用、可验证";
-  const common = { title, audience, brief: shortBrief(brief), keywords: keywordText };
-
-  const deliverables = {
-    lead: {
-      title: "任务简报",
-      summary: `已把「${title}」拆成一条可以逐步验证的交付链。`,
-      sections: [
-        ["北极星", `让${audience}能够更顺畅地完成：${common.brief}`],
-        ["本轮边界", "先保证完整主流程可用，再扩展自动化与分享能力。"],
-        ["协作原则", "每个智能体只交付一个可检查结果，避免用篇幅代替进展。"]
-      ]
-    },
-    product: {
-      title: "产品定义",
-      summary: `核心体验围绕「${keywordText}」建立，先解决一个高频、明确的问题。`,
-      sections: [
-        ["目标用户", audience],
-        ["核心任务", common.brief],
-        ["成功信号", "用户能在首次使用中完成主流程，并愿意保存或分享结果。"]
-      ]
-    },
-    research: {
-      title: "验证清单",
-      summary: "把高风险假设提前，先验证需求与可理解性，再投入复杂实现。",
-      sections: [
-        ["关键假设", `${audience}确实需要更低摩擦的方式处理「${keywords[0] || "当前任务"}」。`],
-        ["最小验证", "邀请 3 位目标用户完成一次主流程，记录停顿、误解和放弃点。"],
-        ["风险提示", "不要用更多功能掩盖价值不清；隐私、空状态和数据恢复需要可见。"]
-      ]
-    },
-    architecture: {
-      title: "系统蓝图",
-      summary: "采用浏览器优先的轻量架构，让 Demo 零配置运行并可渐进增强。",
-      sections: [
-        ["体验层", "响应式单页工作台：项目、协作记录、任务和发布中心。"],
-        ["领域层", "纯函数生成规划结果；事件驱动地推进智能体与任务状态。"],
-        ["数据层", "localStorage 自动保存 + JSON 导入导出；可替换为云端数据库。"]
-      ]
-    },
-    engineer: {
-      title: "工程计划",
-      summary: "先锁定可用主流程，再完善响应式、离线和可访问性。",
-      sections: [
-        ["切片 01", "完成创建项目、模式选择与可恢复的运行状态。"],
-        ["切片 02", "打通交付物和任务板，确保每次操作都即时反馈。"],
-        ["切片 03", "完成 PWA、导入导出、键盘操作与部署验证。"]
-      ]
-    },
-    growth: {
-      title: "发布策略",
-      summary: "用一个清晰的真实场景展示价值，而不是罗列功能。",
-      sections: [
-        ["演示钩子", `从“${shortBrief(brief).slice(0, 38)}”开始，现场展示团队如何接力。`],
-        ["可信证据", "刷新页面保留进度、移动端可用、源码和在线链接公开。"],
-        ["下一步", "收集首轮体验反馈，用完成率和交付耗时决定迭代优先级。"]
-      ]
-    },
-    racerA: {
-      title: "路线 A · 轻量验证",
-      summary: "用无后端的可交互原型最快验证价值，部署与维护成本最低。",
-      sections: [
-        ["方案", "原生 Web + 浏览器持久化 + 静态托管。"],
-        ["优势", "发布快、零密钥、公开评审稳定。"],
-        ["代价", "暂不支持跨设备同步与多人协作。"]
-      ]
-    },
-    racerB: {
-      title: "路线 B · 云端协作",
-      summary: "加入认证与在线数据库，为多人和跨设备场景预留空间。",
-      sections: [
-        ["方案", "响应式前端 + Supabase 认证与数据表。"],
-        ["优势", "支持共享、实时同步和后续服务端能力。"],
-        ["代价", "首次配置和错误面更大，不适合最短验证周期。"]
-      ]
-    }
-  };
-
-  const result = deliverables[agentKey] || deliverables.lead;
-  if (mode === "race" && agentKey === "architecture") {
-    result.summary = "结论：先采用路线 A 验证核心价值，在出现跨设备需求后再迁移路线 B。";
-  }
-  return result;
-}
-
-export function createProject(input, options = {}) {
-  const title = normalizeBrief(input.title) || "未命名项目";
-  const brief = normalizeBrief(input.brief);
-  const audience = normalizeBrief(input.audience) || "希望更高效完成任务的用户";
-  const mode = MODES[input.mode] ? input.mode : "team";
-  const id = options.id || makeId("project");
-  const now = options.now || new Date().toISOString();
-  const context = { title, brief, audience, mode };
-  const agents = MODES[mode].agents.map((key, index) => ({
-    id: makeId("agent"),
-    key,
-    ...AGENTS[key],
-    status: index === 0 ? "active" : "waiting",
-    message: index === 0 ? "正在拆解任务与协作边界…" : "等待上游信息",
-    deliverable: createDeliverable(key, context)
-  }));
-
-  const tasks = TASK_BLUEPRINTS.map(([taskTitle, owner, status], index) => ({
-    id: makeId("task"),
-    title: index === 0 ? `明确「${title}」的首屏承诺` : taskTitle,
-    owner,
-    status,
-    priority: index < 2 ? "P0" : index < 4 ? "P1" : "P2"
-  }));
-
+function buildPreview(prompt, title) {
+  const text = String(prompt);
+  const travel = /旅行|路线|地图|周末|景点/.test(text);
+  const reading = /阅读|读书|书籍/.test(text);
+  const habit = /习惯|健康|运动|打卡/.test(text);
+  const accent = travel ? "#ff6b46" : reading ? "#6a63ff" : habit ? "#33a36b" : "#246bfd";
   return {
-    id,
+    title: title || inferTitle(text),
+    subtitle: travel
+      ? "收藏灵感，生成一条真正松弛的周末路线。"
+      : reading
+        ? "把想读、在读和收获，放进一个安静的空间。"
+        : habit
+          ? "从一个微小动作开始，让改变每天发生。"
+          : /收藏/.test(text)
+            ? "把喜欢的内容加入收藏，随时回到重要的灵感。"
+            : `为你的想法打造清晰、可操作的第一版体验。`,
+    accent,
+    cardTitle: travel ? "本周精选路线" : reading ? "继续阅读" : habit ? "今日微习惯" : "今天从这里开始",
+    cardMeta: travel ? "3 个地点 · 4.2 km" : reading ? "《创造知识的方法》 · 38%" : habit ? "连续 7 天 · 还差 12 分钟" : "3 项待完成 · 预计 24 分钟",
+    button: /收藏/.test(text) ? "加入收藏" : travel ? "生成我的路线" : reading ? "记录进度" : habit ? "完成打卡" : "开始体验"
+  };
+}
+
+function createPlan(prompt) {
+  const scope = String(prompt).slice(0, 72);
+  return [
+    { title: "明确产品目标", detail: `围绕“${scope}”确认首要用户和单一核心任务。` },
+    { title: "搭建应用结构", detail: "建立首页、核心操作卡片、结果反馈与本地状态边界。" },
+    { title: "实现关键交互", detail: "完成响应式界面、空态、输入校验、状态保存和可访问反馈。" },
+    { title: "验证并交付", detail: "运行静态检查与主流程回归，生成可预览的发布版本。" }
+  ];
+}
+
+function createFiles(preview) {
+  return [
+    { path: "src/App.jsx", type: "jsx", status: "modified" },
+    { path: "src/styles.css", type: "css", status: "modified" },
+    { path: "src/data.js", type: "js", status: "added" },
+    { path: "package.json", type: "json", status: "clean" },
+    { path: "README.md", type: "md", status: "added" }
+  ].map((file, index) => ({ ...file, lines: 26 + index * 17, accent: preview.accent }));
+}
+
+function createCode(preview) {
+  return `export default function App() {
+  return (
+    <main className="app">
+      <header className="hero">
+        <span className="eyebrow">YOUR DAILY SPACE</span>
+        <h1>${preview.title}</h1>
+        <p>${preview.subtitle}</p>
+      </header>
+      <section className="feature-card">
+        <h2>${preview.cardTitle}</h2>
+        <p>${preview.cardMeta}</p>
+        <button>${preview.button}</button>
+      </section>
+    </main>
+  );
+}`;
+}
+
+export function createWorkspace(input, options = {}) {
+  const now = options.now || new Date().toISOString();
+  const prompt = String(input.prompt || "").trim();
+  const title = String(input.title || inferTitle(prompt));
+  const mode = MODES[input.mode] ? input.mode : "team";
+  const preview = buildPreview(prompt, title);
+  const selectedAgents = MODES[mode].agents.map((key, index) => ({
+    ...agentByKey(key),
+    status: index === 0 ? "done" : "waiting",
+    message: index === 0 ? "计划已整理，等待你的确认" : "等待接力"
+  }));
+  return {
+    id: options.id || uniqueId(),
     title,
-    brief,
-    audience,
+    prompt,
     mode,
+    phase: "plan-review",
     createdAt: now,
     updatedAt: now,
-    status: "running",
-    paused: false,
-    agents,
-    tasks
+    published: false,
+    publishedAt: null,
+    preview,
+    code: createCode(preview),
+    plan: createPlan(prompt),
+    agents: selectedAgents,
+    files: createFiles(preview),
+    logs: [
+      { level: "info", text: "Workspace initialized", time: "00:00" },
+      { level: "success", text: "Mike generated an implementation plan", time: "00:01" }
+    ],
+    messages: [
+      { id: uniqueId("msg"), role: "user", text: prompt, time: now },
+      { id: uniqueId("msg"), role: "agent", agent: "mike", text: "我已经把需求拆成 4 个可交付步骤。确认后，团队会开始构建应用。", time: now }
+    ]
   };
 }
 
-export function advanceProject(project, now = new Date().toISOString()) {
-  if (!project || project.paused || project.status === "complete") return project;
-  const agents = project.agents.map((agent) => ({ ...agent }));
-  const activeIndex = agents.findIndex((agent) => agent.status === "active");
+export function approvePlan(workspace, now = new Date().toISOString()) {
+  if (workspace.phase !== "plan-review") return workspace;
+  const agents = workspace.agents.map((agent, index) => ({
+    ...agent,
+    status: index === 0 ? "done" : index === 1 ? "active" : "waiting",
+    message: index === 0 ? "计划已批准，正在协调团队" : index === 1 ? agent.action : "等待接力"
+  }));
+  return {
+    ...workspace,
+    phase: "building",
+    agents,
+    updatedAt: now,
+    logs: [...workspace.logs, { level: "info", text: "Plan approved — build started", time: "00:02" }],
+    messages: [...workspace.messages, { id: uniqueId("msg"), role: "system", text: "计划已批准，智能体团队开始构建。", time: now }]
+  };
+}
 
-  if (activeIndex === -1) {
-    return { ...project, agents, status: "complete", updatedAt: now };
-  }
+export function nextBuildStep(workspace, now = new Date().toISOString()) {
+  if (workspace.phase !== "building") return workspace;
+  const agents = workspace.agents.map((agent) => ({ ...agent }));
+  const activeIndex = agents.findIndex((agent) => agent.status === "active");
+  if (activeIndex === -1) return { ...workspace, phase: "ready", updatedAt: now };
 
   agents[activeIndex].status = "done";
-  agents[activeIndex].message = "交付完成，已同步给下一位队友";
-
+  agents[activeIndex].message = "已完成并同步工作结果";
   const nextIndex = activeIndex + 1;
   if (nextIndex < agents.length) {
     agents[nextIndex].status = "active";
-    agents[nextIndex].message = "正在吸收上下文并形成交付物…";
+    agents[nextIndex].message = agents[nextIndex].action;
   }
-
+  const finished = nextIndex >= agents.length;
+  const actor = agents[activeIndex];
   return {
-    ...project,
+    ...workspace,
     agents,
-    status: nextIndex < agents.length ? "running" : "complete",
-    updatedAt: now
+    phase: finished ? "ready" : "building",
+    updatedAt: now,
+    logs: [
+      ...workspace.logs,
+      { level: "success", text: `${actor.name} completed: ${actor.action}`, time: `00:0${Math.min(activeIndex + 3, 9)}` },
+      ...(finished ? [{ level: "success", text: "Build finished — preview is ready", time: "00:09" }] : [])
+    ],
+    messages: finished
+      ? [...workspace.messages, { id: uniqueId("msg"), role: "agent", agent: "mike", text: "第一版已经构建完成。你可以预览、切换设备，或打开 Design 直接修改页面。", time: now }]
+      : workspace.messages
   };
 }
 
-export function restartProject(project, brief, mode = project.mode) {
-  const refreshed = createProject(
-    { title: project.title, audience: project.audience, brief, mode },
-    { id: project.id, now: new Date().toISOString() }
-  );
-  return { ...refreshed, createdAt: project.createdAt };
+export function buildProgress(workspace) {
+  if (!workspace?.agents?.length) return 0;
+  return Math.round((workspace.agents.filter((agent) => agent.status === "done").length / workspace.agents.length) * 100);
 }
 
-export function projectProgress(project) {
-  if (!project?.tasks?.length) return 0;
-  const completed = project.tasks.filter((task) => task.status === "已完成").length;
-  return Math.round((completed / project.tasks.length) * 100);
-}
-
-export function cycleTaskStatus(status) {
-  const order = ["待开始", "进行中", "已完成"];
-  const index = order.indexOf(status);
-  return order[(index + 1) % order.length];
-}
-
-export function finishAllAgents(project) {
+export function updatePreview(workspace, patch, now = new Date().toISOString()) {
+  const preview = { ...workspace.preview, ...patch };
   return {
-    ...project,
-    status: "complete",
-    paused: false,
-    agents: project.agents.map((agent) => ({ ...agent, status: "done", message: "交付完成，已同步到项目空间" })),
-    updatedAt: new Date().toISOString()
+    ...workspace,
+    preview,
+    code: createCode(preview),
+    updatedAt: now,
+    published: false,
+    logs: [...workspace.logs, { level: "info", text: "Visual edit applied to preview", time: "now" }]
   };
 }
 
-export function createDemoProject() {
-  const project = createProject(
+export function submitPrompt(workspace, prompt, now = new Date().toISOString()) {
+  if (isComposerEmpty(prompt)) return workspace;
+  const text = String(prompt).trim();
+  const preview = buildPreview(text, workspace.preview.title);
+  const updatedPreview = { ...workspace.preview, subtitle: preview.subtitle, button: preview.button };
+  const agents = workspace.agents.map((agent, index) => ({
+    ...agent,
+    status: index === 0 ? "done" : "waiting",
+    message: index === 0 ? "变更计划已整理，等待确认" : "等待接力"
+  }));
+  return {
+    ...workspace,
+    prompt: text,
+    phase: "plan-review",
+    published: false,
+    preview: updatedPreview,
+    code: createCode(updatedPreview),
+    plan: createPlan(text),
+    agents,
+    updatedAt: now,
+    messages: [
+      ...workspace.messages,
+      { id: uniqueId("msg"), role: "user", text, time: now },
+      { id: uniqueId("msg"), role: "agent", agent: "mike", text: "收到。我已经生成这次变更的执行计划，请先确认范围。", time: now }
+    ]
+  };
+}
+
+export function changeMode(workspace, mode, now = new Date().toISOString()) {
+  if (!MODES[mode] || workspace.phase === "building") return workspace;
+  const agents = MODES[mode].agents.map((key, index) => ({
+    ...agentByKey(key),
+    status: index === 0 ? "done" : "waiting",
+    message: index === 0 ? "计划已整理，等待你的确认" : "等待接力"
+  }));
+  return { ...workspace, mode, agents, phase: "plan-review", published: false, updatedAt: now };
+}
+
+export function publishWorkspace(workspace, now = new Date().toISOString()) {
+  if (workspace.phase !== "ready") return workspace;
+  return {
+    ...workspace,
+    published: true,
+    publishedAt: now,
+    updatedAt: now,
+    logs: [...workspace.logs, { level: "success", text: "Demo published to a simulated preview URL", time: "now" }]
+  };
+}
+
+export function createDemoWorkspace() {
+  let workspace = createWorkspace(
     {
-      title: "周末漫游地图",
-      brief: "为工作繁忙的城市青年生成一条松弛、好拍照、不过度赶路的周末路线，并能保存自己的行程进度。",
-      audience: "想轻松安排短途出行的上班族",
+      title: "周末漫游",
+      prompt: "做一个周末城市漫游应用，让用户收藏灵感地点并生成一条松弛、好拍照的路线",
       mode: "team"
     },
-    { id: "project-demo", now: "2026-07-18T08:00:00.000Z" }
+    { id: "workspace-demo", now: "2026-07-18T08:00:00.000Z" }
   );
-  const complete = finishAllAgents(project);
-  complete.tasks = complete.tasks.map((task, index) => ({
-    ...task,
-    status: index < 2 ? "已完成" : index < 4 ? "进行中" : "待开始"
-  }));
-  return complete;
+  workspace = approvePlan(workspace, "2026-07-18T08:00:02.000Z");
+  while (workspace.phase === "building") workspace = nextBuildStep(workspace, "2026-07-18T08:00:09.000Z");
+  return workspace;
 }

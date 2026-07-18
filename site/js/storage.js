@@ -1,26 +1,36 @@
-import { createDemoProject } from "./planner.js";
+import { createDemoWorkspace } from "./planner.js";
 
-export const STORAGE_KEY = "molecule-workspace-v1";
+export const STORAGE_KEY = "atoms-demo-workspace-v2";
 
 export function initialState() {
-  const demo = createDemoProject();
+  const workspace = createDemoWorkspace();
   return {
-    version: 1,
-    theme: "light",
-    activeView: "studio",
-    activeProjectId: demo.id,
-    activeArtifactByProject: { [demo.id]: "lead" },
-    profile: { name: "体验者", role: "独立创造者" },
-    projects: [demo]
+    version: 2,
+    activeWorkspaceId: workspace.id,
+    activePanel: "preview",
+    activeRail: "terminal",
+    device: "desktop",
+    designMode: false,
+    sidebarOpen: false,
+    workspaces: [workspace]
   };
 }
 
 export function isValidState(value) {
   return Boolean(
     value &&
-      value.version === 1 &&
-      Array.isArray(value.projects) &&
-      value.projects.every((project) => project?.id && project?.title && Array.isArray(project.agents) && Array.isArray(project.tasks))
+      value.version === 2 &&
+      typeof value.activeWorkspaceId === "string" &&
+      Array.isArray(value.workspaces) &&
+      value.workspaces.length > 0 &&
+      value.workspaces.every(
+        (workspace) =>
+          workspace?.id &&
+          workspace?.title &&
+          Array.isArray(workspace.agents) &&
+          Array.isArray(workspace.messages) &&
+          Array.isArray(workspace.files)
+      )
   );
 }
 
@@ -48,6 +58,6 @@ export function saveState(state, storage = globalThis.localStorage) {
 
 export function parseImportedState(text) {
   const parsed = JSON.parse(text);
-  if (!isValidState(parsed)) throw new Error("这不是有效的 Molecule 项目快照");
+  if (!isValidState(parsed)) throw new Error("这不是有效的 Atoms Demo 工作区快照");
   return parsed;
 }

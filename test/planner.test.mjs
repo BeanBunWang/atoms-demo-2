@@ -1,59 +1,99 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
-  advanceProject,
-  createProject,
-  cycleTaskStatus,
-  extractKeywords,
-  finishAllAgents,
-  projectProgress
+  AGENTS,
+  approvePlan,
+  buildProgress,
+  createWorkspace,
+  isComposerEmpty,
+  nextBuildStep,
+  publishWorkspace,
+  submitPrompt,
+  updatePreview
 } from "../site/js/planner.js";
-import { initialState, isValidState, parseImportedState } from "../site/js/storage.js";
+import { STORAGE_KEY, initialState, isValidState, loadState, parseImportedState } from "../site/js/storage.js";
 
-test("团队模式会生成完整智能体链路和可执行任务", () => {
-  const project = createProject(
-    { title: "读书搭子", brief: "帮助忙碌的上班族坚持阅读并记录收获", audience: "上班族", mode: "team" },
+test("新工作区包含 Atoms 应用构建链路", () => {
+  const workspace = createWorkspace(
+    { title: "读书搭子", prompt: "为忙碌的上班族做一个阅读记录应用", mode: "team" },
     { id: "p1", now: "2026-01-01T00:00:00.000Z" }
   );
 
-  assert.equal(project.id, "p1");
-  assert.equal(project.agents.length, 6);
-  assert.equal(project.agents[0].status, "active");
-  assert.ok(project.tasks.length >= 6);
+  assert.equal(workspace.id, "p1");
+  assert.equal(workspace.phase, "plan-review");
+  assert.equal(workspace.agents.length, 5);
+  assert.equal(workspace.agents[0].key, "mike");
+  assert.ok(workspace.plan.length >= 4);
+  assert.ok(workspace.files.some((file) => file.path === "src/App.jsx"));
 });
 
-test("推进项目会完成当前智能体并激活下一位", () => {
-  const project = createProject({ title: "A", brief: "B", audience: "C", mode: "engineer" });
-  const advanced = advanceProject(project, "2026-01-01T00:00:01.000Z");
+test("审批计划后才允许智能体进入构建", () => {
+  const draft = createWorkspace({ title: "A", prompt: "做一个清晰的任务应用", mode: "build" });
+  assert.equal(nextBuildStep(draft).phase, "plan-review");
 
-  assert.equal(advanced.agents[0].status, "done");
-  assert.equal(advanced.agents[1].status, "active");
-  assert.equal(advanced.status, "running");
+  let workspace = approvePlan(draft, "2026-01-01T00:00:01.000Z");
+  assert.equal(workspace.phase, "building");
+  assert.equal(workspace.agents[1].status, "active");
+
+  while (workspace.phase === "building") workspace = nextBuildStep(workspace, "2026-01-01T00:00:02.000Z");
+  assert.equal(workspace.phase, "ready");
+  assert.equal(buildProgress(workspace), 100);
 });
 
-test("任务状态循环与进度计算保持一致", () => {
-  const project = createProject({ title: "A", brief: "B", audience: "C", mode: "team" });
-  project.tasks = project.tasks.map((task) => ({ ...task, status: "已完成" }));
+test("追加指令会生成新的计划审批轮次", () => {
+  const ready = createWorkspace({ title: "A", prompt: "做一个旅行应用", mode: "team" });
+  const updated = submitPrompt(ready, "增加收藏和深色按钮", "2026-01-01T00:00:03.000Z");
 
-  assert.equal(cycleTaskStatus("待开始"), "进行中");
-  assert.equal(cycleTaskStatus("进行中"), "已完成");
-  assert.equal(projectProgress(project), 100);
+  assert.equal(updated.phase, "plan-review");
+  assert.match(updated.preview.subtitle, /收藏/);
+  assert.equal(updated.messages.at(-1).role, "agent");
 });
 
-test("本地状态可以导出后再安全导入", () => {
+test("可视编辑和发布更新交付状态", () => {
+  let workspace = createWorkspace({ title: "A", prompt: "做一个健康习惯应用", mode: "team" });
+  workspace = approvePlan(workspace);
+  while (workspace.phase === "building") workspace = nextBuildStep(workspace);
+  workspace = updatePreview(workspace, { title: "微习惯", accent: "#7c5cff" });
+  workspace = publishWorkspace(workspace, "2026-01-01T00:00:04.000Z");
+
+  assert.equal(workspace.preview.title, "微习惯");
+  assert.equal(workspace.preview.accent, "#7c5cff");
+  assert.equal(workspace.published, true);
+});
+
+test("输入空态严格区分空白与有效内容", () => {
+  assert.equal(isComposerEmpty(""), true);
+  assert.equal(isComposerEmpty("   \n"), true);
+  assert.equal(isComposerEmpty("做一个应用"), false);
+});
+
+test("本地状态可以安全加载与导入", () => {
   const state = initialState();
   const imported = parseImportedState(JSON.stringify(state));
-
   assert.equal(isValidState(imported), true);
-  assert.equal(imported.activeProjectId, "project-demo");
+  assert.equal(imported.activeWorkspaceId, "workspace-demo");
+  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v2");
   assert.throws(() => parseImportedState('{"version":1}'), /有效/);
+
+  const brokenStorage = { getItem: () => "{broken" };
+  assert.equal(loadState(brokenStorage).version, 2);
 });
 
-test("关键词去重且最终完成全部智能体", () => {
-  assert.deepEqual(extractKeywords("城市 城市 周末 路线"), ["城市", "周末", "路线"]);
-  const project = createProject({ title: "A", brief: "B", audience: "C", mode: "race" });
-  const complete = finishAllAgents(project);
-  assert.equal(complete.status, "complete");
-  assert.ok(complete.agents.every((agent) => agent.status === "done"));
+test("页面为 placeholder 提供显式输入态契约", async () => {
+  const [html, css, app] = await Promise.all([
+    readFile(new URL("../site/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../site/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../site/js/app.js", import.meta.url), "utf8")
+  ]);
+
+  assert.match(html, /id="prompt-input"[^>]+placeholder=/s);
+  assert.match(css, /\.prompt-input\.has-value::placeholder/);
+  assert.match(app, /classList\.toggle\("has-value"/);
+});
+
+test("所有展示智能体均有本地头像", () => {
+  assert.equal(AGENTS.length, 8);
+  assert.ok(AGENTS.every((agent) => agent.avatar.startsWith("./assets/agents/")));
 });

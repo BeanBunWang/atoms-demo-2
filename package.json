@@ -1,6 +1,6 @@
 {
-  "name": "atoms-demo-molecule",
-  "version": "1.0.0",
+  "name": "atoms-demo-app-builder",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {

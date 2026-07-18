@@ -1,4 +1,4 @@
-const CACHE_NAME = "molecule-v2";
+const CACHE_NAME = "atoms-demo-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,7 +6,15 @@ const ASSETS = [
   "./js/app.js",
   "./js/planner.js",
   "./js/storage.js",
-  "./assets/icon.svg",
+  "./assets/atoms-mark.svg",
+  "./assets/agents/mike.webp",
+  "./assets/agents/emma.webp",
+  "./assets/agents/bob.webp",
+  "./assets/agents/alex.webp",
+  "./assets/agents/david.webp",
+  "./assets/agents/iris.webp",
+  "./assets/agents/sarah.webp",
+  "./assets/agents/adrian.png",
   "./favicon.ico",
   "./manifest.webmanifest"
 ];
@@ -24,12 +32,14 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+  if (event.request.method !== "GET" || new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
         return response;
       })
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match("./index.html")))
