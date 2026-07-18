@@ -21,8 +21,16 @@ export async function runAgentRuntime({ stage, prompt, context = {}, capabilitie
       send("runtime.fallback", { phase: "intent", message: "意图模型输出异常，已使用确定性路由器" });
     }
     send("intent.classified", { phase: "intent", agent: "mike", intent, message: `${intent.type} · ${intent.domain} · 置信度 ${Math.round(intent.confidence * 100)}%` });
+    if (intent.needsClarification && !context.clarificationAnswer) {
+      send("clarification.required", { phase: "clarification", agent: "alex", clarification: intent.clarification, message: intent.clarification.question });
+      send("run.completed", { stage: "plan", status: "awaiting_clarification", intent, clarification: intent.clarification });
+      return { id, status: "awaiting_clarification", intent, clarification: intent.clarification };
+    }
+    const resolvedPrompt = context.clarificationAnswer
+      ? `${prompt}\n用户对澄清问题的回答：${context.clarificationAnswer}`
+      : prompt;
     send("phase.started", { phase: "planning", agent: "mike", tool: "task_router", message: "选择专家并生成依赖顺序" });
-    plan = normalizePlan(await complete(planPrompt({ prompt, intent, capabilities })), intent);
+    plan = normalizePlan(await complete(planPrompt({ prompt: resolvedPrompt, intent, capabilities })), intent);
     send("plan.created", { phase: "planning", agent: "mike", plan, message: `已路由 ${new Set(plan.steps.map((step) => step.agent)).size} 位专家，共 ${plan.steps.length} 步` });
     send("approval.required", { phase: "approval", agent: "mike", message: "计划会改变产品范围，等待批准后再执行" });
     send("run.completed", { stage: "plan", status: "awaiting_approval", intent, plan });

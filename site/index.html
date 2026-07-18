@@ -9,13 +9,13 @@
     <link rel="icon" href="./assets/atoms-mark.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="./favicon.ico" type="image/png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=6" />
+    <link rel="stylesheet" href="./styles.css?v=7" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
     <div class="demo-banner">
       <span><b>Atoms-like Demo</b> · <i id="model-status">正在检测 DeepSeek…</i></span>
-      <a href="https://github.com/BeanBunWang/atoms-demo" target="_blank" rel="noreferrer">查看源码 ↗</a>
+      <a href="https://github.com/BeanBunWang/atoms-demo-2" target="_blank" rel="noreferrer">查看源码 ↗</a>
     </div>
 
     <div class="app-shell">
@@ -69,39 +69,24 @@
         <main class="builder" id="main-content">
           <section class="conversation-panel" id="conversation-panel" aria-label="智能体对话">
             <header class="panel-titlebar">
-              <div><strong>Build with Atoms</strong><span><b id="mode-label">Team mode</b> · <i id="model-label">Checking AI</i></span></div>
+              <div><strong>Alex · Engineer</strong><span><b id="mode-label">Auto routing</b> · <i id="model-label">Checking AI</i></span></div>
               <button class="icon-button" id="restart-button" type="button" aria-label="新建工作区">＋</button>
             </header>
 
             <div class="message-stream" id="message-stream" aria-live="polite"></div>
 
-            <div class="plan-card" id="plan-card" hidden>
-              <div class="plan-heading"><span>IMPLEMENTATION PLAN</span><b id="plan-step-count">4 steps</b></div>
-              <div id="plan-list" class="plan-list"></div>
-              <div class="plan-actions">
-                <button class="approve-button" id="approve-plan-button" type="button">Approve & build</button>
-                <button class="quiet-button" id="revise-plan-button" type="button">Revise</button>
-              </div>
-            </div>
-
             <form class="composer" id="composer-form">
               <label class="sr-only" for="prompt-input">向智能体描述要构建或修改的应用</label>
               <textarea class="prompt-input" id="prompt-input" rows="3" maxlength="500" placeholder="Describe what you want to build or change..."></textarea>
               <div class="composer-footer">
-                <div class="mode-menu-wrap">
-                  <button class="mode-button" id="mode-button" type="button"><span>⚒</span><b id="mode-button-label">Team</b><i>⌄</i></button>
-                  <div class="mode-menu" id="mode-menu" hidden></div>
-                </div>
+                <span class="auto-route-pill"><span>✦</span> Auto routing</span>
                 <div class="composer-tools">
                   <div class="capability-wrap">
                     <button id="attachment-button" type="button" aria-label="打开能力菜单" aria-expanded="false">＋</button>
                     <div class="capability-menu" id="capability-menu" hidden>
                       <div class="capability-title">Agent capabilities</div>
-                      <label><span><b>Team Mode</b><small>按意图路由多个专家</small></span><input type="checkbox" data-capability="teamMode" checked /></label>
                       <button type="button" data-capability-action="attachment"><span><b>Attachments</b><small id="attachment-summary">添加文本上下文</small></span><i>›</i></button>
                       <button type="button" data-capability-action="connectors"><span><b>Connectors</b><small id="connector-summary">选择上下文来源</small></span><i>›</i></button>
-                      <label><span><b>Deep Research</b><small>Iris 先研究再交付</small></span><input type="checkbox" data-capability="deepResearch" /></label>
-                      <label><span><b>Race Mode</b><small>比较两个页面方向</small></span><input type="checkbox" data-capability="raceMode" /></label>
                     </div>
                   </div>
                   <input id="attachment-input" type="file" accept=".txt,.md,.json,.csv" multiple hidden />
@@ -113,10 +98,7 @@
 
           <section class="viewer-panel" aria-label="应用查看器">
             <header class="viewer-toolbar">
-              <div class="segmented" role="tablist" aria-label="查看模式">
-                <button type="button" role="tab" data-panel="preview" class="active">Preview</button>
-                <button type="button" role="tab" data-panel="code">Code</button>
-              </div>
+              <div class="app-viewer-pill">▣ App Viewer</div>
               <div class="viewer-tools">
                 <button class="tool-button" id="refresh-button" type="button" aria-label="刷新预览">↻</button>
                 <div class="device-switcher" aria-label="预览尺寸">
@@ -125,11 +107,21 @@
                   <button type="button" data-device="mobile" title="手机">▯</button>
                 </div>
                 <button class="design-button" id="design-button" type="button"><span>✦</span> Design</button>
+                <button class="tool-button console-button" id="activity-toggle" type="button" aria-label="打开 Console">Console</button>
+                <button class="tool-button" type="button" data-panel="code" aria-label="查看代码">&lt;/&gt;</button>
                 <button class="tool-button" id="open-preview-button" type="button" aria-label="新窗口打开预览">↗</button>
               </div>
             </header>
 
             <div class="viewer-canvas" id="viewer-canvas">
+              <div class="design-shell">
+                <aside class="design-sidebar" aria-label="设计工具">
+                  <strong><span>✣</span> Design</strong>
+                  <button type="button" class="active">Visual Editor</button>
+                  <button type="button">Library</button>
+                  <button type="button">Theme</button>
+                </aside>
+                <div class="design-preview">
               <div class="app-frame desktop" id="app-frame">
                 <div class="generated-app" id="generated-app">
                   <header class="generated-nav"><a href="#"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></a><nav><a id="preview-nav-primary" href="#primary">发现</a><a id="preview-nav-secondary" href="#secondary">收藏</a><button id="preview-avatar">TW</button></nav></header>
@@ -145,11 +137,13 @@
                 </div>
               </div>
               <pre class="code-view" id="code-view" hidden><code id="code-content"></code></pre>
+                </div>
+              </div>
               <div class="design-hint" id="design-hint" hidden>Design mode · 点击预览中的标题或卡片进行编辑</div>
             </div>
           </section>
 
-          <aside class="activity-panel" aria-label="构建活动">
+          <aside class="activity-panel" id="activity-panel" aria-label="构建活动">
             <header class="activity-tabs" role="tablist" aria-label="活动视图">
               <button type="button" role="tab" data-rail="terminal" class="active">Terminal</button>
               <button type="button" role="tab" data-rail="files">Files <span id="file-count">5</span></button>
@@ -168,8 +162,7 @@
         <div class="dialog-header"><div><span>NEW WORKSPACE</span><h2>What should Atoms build?</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></div>
         <label>Project name<input name="title" maxlength="36" placeholder="例如：微习惯" /></label>
         <label>Describe the app<textarea name="prompt" rows="5" maxlength="500" required placeholder="目标用户是谁？最重要的使用场景是什么？"></textarea></label>
-        <fieldset><legend>Build mode</legend><div class="dialog-modes" id="dialog-modes"></div></fieldset>
-        <div class="dialog-actions"><button class="quiet-button" type="button" data-close-dialog>Cancel</button><button class="approve-button" type="submit">Create plan →</button></div>
+        <div class="dialog-actions"><button class="quiet-button" type="button" data-close-dialog>Cancel</button><button class="approve-button" type="submit">Start with agents →</button></div>
       </form>
     </dialog>
 
@@ -191,6 +184,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="./js/app.js?v=6"></script>
+    <script type="module" src="./js/app.js?v=7"></script>
   </body>
 </html>

@@ -82,3 +82,32 @@ test("runtime 先计划审批，再执行工具、生成产物并验证", async 
   assert.ok(buildEvents.some((event) => event.type === "tool.called"));
   assert.ok(buildEvents.some((event) => event.type === "verification.completed"));
 });
+
+test("runtime 只在关键方向缺失时暂停并请求结构化澄清", async () => {
+  const events = [];
+  let calls = 0;
+  const complete = async () => {
+    calls += 1;
+    return {
+      type: "build_app",
+      goal: "构建健身 app",
+      domain: "健身",
+      audience: "健身用户",
+      requestedFeatures: [],
+      confidence: .82,
+      needsClarification: true,
+      clarification: {
+        question: "第一版优先做什么？",
+        options: [
+          { label: "运动记录", value: "优先运动记录", description: "记录训练" },
+          { label: "课程计划", value: "优先课程计划", description: "安排课程" }
+        ]
+      }
+    };
+  };
+  const result = await runAgentRuntime({ stage: "plan", prompt: "做一个健身 app", complete, emit: (event) => events.push(event) });
+  assert.equal(result.status, "awaiting_clarification");
+  assert.equal(calls, 1);
+  assert.ok(events.some((event) => event.type === "clarification.required"));
+  assert.ok(!events.some((event) => event.type === "plan.created"));
+});

@@ -83,7 +83,13 @@ function sanitizeRunBody(raw) {
     stage: raw?.stage === "build" ? "build" : "plan",
     prompt,
     capabilities,
-    context: { intent, plan, preview, hasExistingApp: Boolean(rawContext.hasExistingApp) }
+    context: {
+      intent,
+      plan,
+      preview,
+      hasExistingApp: Boolean(rawContext.hasExistingApp),
+      clarificationAnswer: cleanText(rawContext.clarificationAnswer, "", 240) || undefined
+    }
   };
 }
 

@@ -1,82 +1,56 @@
 # Atoms Demo · AI App Builder
 
-一个可运行的 Atoms-like Agent 应用构建工作台，覆盖“描述目标 → 意图识别 → 专家路由 → 计划审批 → 工具执行 → 质量验证 → 应用预览/可视编辑”的完整主线。
+一个可运行的 Atoms-like 应用构建器。重点不是模式切换，而是完整 Agent 闭环：
 
-> 非官方项目，与 Atoms 无隶属关系。本地 Node 服务与 Cloudflare Worker 均可使用 DeepSeek V4 Flash 驱动真实 Agent runtime；生成的应用代码只展示、不执行，应用内 Publish 仍为安全模拟。
+`自然语言 → 意图识别 → 必要时澄清 → 动态计划 → 人工批准 → Agent/工具执行 → 验证修复 → App Viewer`
+
+> 非官方项目，与 Atoms 无隶属关系。生成的应用代码只展示、不执行；应用内 Publish 为产品交互模拟。
 
 ## 在线体验
 
-- GitHub Pages（公开演示，规则降级）：<https://beanbunwang.github.io/atoms-demo/>
-- GitHub 源码：<https://github.com/BeanBunWang/atoms-demo>
+- Cloudflare（真实 DeepSeek）：<https://atoms-demo.beanbunwang-lab.workers.dev>
+- GitHub：<https://github.com/BeanBunWang/atoms-demo-2>
 
-## 使用真实 DeepSeek 运行
+## 本地运行
 
-项目使用 Node.js 标准库，不需要安装依赖。复制环境变量模板并填写密钥：
+项目仅使用 Node.js 标准库，无需安装依赖：
 
 ```bash
 cp .env.example .env
-```
-
-启动应用：
-
-```bash
 npm start
 ```
 
-打开 <http://127.0.0.1:4173>。页面顶部显示 `deepseek-v4-flash 已连接` 时，新需求会经过真实的意图识别、动态规划、工具执行和验证流程。
+打开 <http://127.0.0.1:4173>。模型默认固定为 `deepseek-v4-flash`；`.env` 已被 Git 忽略，API Key 只在服务端读取。
 
-如果 4173 端口已被占用，可执行 `PORT=4174 npm start`。
-
-`.env` 已被 Git 忽略，API Key 只由服务端读取，不会发送到浏览器或进入静态产物。
-
-## 无密钥静态运行
-
-仅体验本地规则降级版本时：
+没有密钥时也可运行确定性降级版本：
 
 ```bash
 python3 -m http.server 4173 -d site
 ```
 
-打开 <http://localhost:4173>。GitHub Pages 在线 Demo 也使用这一降级路径，因为纯静态托管无法安全保存 API Key。
+## 核心能力
 
-## 可操作功能
-
-- DeepSeek V4 Flash 先识别 `build / modify / research / data / campaign / video` 意图，再按任务选择专家
-- Mike 生成带依赖关系的执行计划；人工批准前不会进入构建
-- Emma、Iris、Bob、Alex、David、Sarah、Adrian 按计划调用受控工具，并把产物作为下游上下文
-- 结构、话题关联、布局差异和文件清单验证；失败时最多自动重规划一次
-- Build / Team / Race / Research 模式，以及 Team Mode、附件、连接器上下文、Deep Research、Race Mode 能力入口
-- 根据话题选择 dashboard / tracker / catalog / planner / community / landing 布局，生成不同模块和示例数据
-- 在 App Viewer 中切换 Preview / Code 与桌面、平板、手机尺寸
-- 开启 Design mode，点击预览元素修改标题、说明和主题色
-- 查看实时意图、决策、专家状态、工具调用、验证结果、终端日志与生成文件列表
-- 模拟发布、分享地址、导出工作区，并通过 localStorage 自动保存
-- 响应式布局、键盘焦点、减少动态效果和离线 PWA
-
-首次打开会加载一个完成构建的演示项目。新建项目可体验完整 Agent runtime；运行中可直接观察意图、路由、工具与验证事件。
+- 直接输入需求，不要求先选 Build / Team / Race / Research
+- 识别构建、修改、研究、数据分析、增长和视频类意图
+- 仅在关键方向缺失时展示结构化澄清，回答后在同一会话继续
+- Mike 根据意图选择必要专家和受控工具，审批前不会执行
+- 对话内展示 Working Process、Agent、tool call、tool output、验证与重规划
+- 根据话题生成 dashboard / tracker / catalog / planner / community / landing 页面
+- App Viewer 支持设备预览、代码、Design 可视编辑、Console/Files 抽屉
+- 支持附件上下文、本地多项目保存、导出、分享和发布状态
+- Cloudflare Worker 提供同源校验、32 KB 上限、上下文白名单和每 IP 限流
 
 ## 验证
 
 ```bash
 npm test
 npm run check
+npx wrangler@4.36.0 deploy --dry-run
 ```
 
-## 部署取舍
+## 部署
 
-| 方案 | 免费额度与限制 | 服务端 Secret | 本项目结论 |
-| --- | --- | --- | --- |
-| GitHub Pages | 公开仓库可免费使用；软带宽上限 100 GB/月 | 不支持 | 已部署，适合稳定公开评审与无密钥降级体验 |
-| Cloudflare Workers | 免费层 10 万次 Worker 请求/天；静态资源请求免费且不限量 | 支持 | 推荐用于在线真实模型；代码与限流配置已就绪 |
-| Vercel Hobby | 个人非商业项目免费；包含 Functions 用量 | 支持 | 可行备选，但本项目不再增加第二套部署适配 |
-
-资料：[Cloudflare Workers 限制](https://developers.cloudflare.com/workers/platform/limits/)、[Cloudflare 静态资源计费](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)、[Vercel Hobby](https://vercel.com/docs/plans/hobby)、[GitHub Pages 限制](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)。
-
-仓库默认由 GitHub Actions 发布 `site/` 到 GitHub Pages。静态站不会包含 `.env`，因此在线公开地址使用明确标识的规则降级；本地 `npm start` 使用真实 DeepSeek。
-
-### Cloudflare 在线真实模型
-
-`worker.mjs` 会同时提供静态站和 `/api/agent/*`，并启用同源校验、32 KB 请求上限、上下文白名单、每 IP 每分钟 6 次限流和 CSP。部署时把 Key 写入 Cloudflare Secret，禁止写入 `wrangler.jsonc`：
+Cloudflare Workers 免费层适合本项目：能同时托管静态资源和保存服务端 Secret；免费层包含每日 Worker 请求额度，静态资源请求不计入 Worker 请求额度。部署命令：
 
 ```bash
 npx wrangler@4.36.0 login
@@ -84,11 +58,10 @@ npx wrangler@4.36.0 secret put DEEPSEEK_API_KEY
 npm run deploy:cloudflare
 ```
 
-当前工作环境没有已登录的 Cloudflare 账户，因此没有代替仓库所有者创建账户或上传密钥；Worker 已通过 dry-run，可在账户就绪后直接部署。
+资料：[Workers 限制](https://developers.cloudflare.com/workers/platform/limits/)、[静态资源计费](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)、[Atoms Help Center](https://help.atoms.dev/zh-CN/)。
 
 ## 文档
 
 - [交付说明](./DELIVERY_NOTES.md)
-- [重构计划](./REPLAN.md)
-- [设计说明](./DESIGN.md)
+- [设计与架构](./DESIGN.md)
 - [品牌与视觉来源](./BRAND_SPEC.md)

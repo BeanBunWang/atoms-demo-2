@@ -2,6 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "atoms-demo",
   "main": "worker.mjs",
+  "workers_dev": true,
   "compatibility_date": "2026-07-18",
   "assets": {
     "directory": "./site",

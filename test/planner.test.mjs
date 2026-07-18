@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   AGENTS,
+  answerClarification,
   applyModelPlan,
   approvePlan,
   buildProgress,
@@ -52,6 +53,14 @@ test("追加指令会生成新的计划审批轮次", () => {
   assert.equal(updated.messages.at(-1).role, "agent");
 });
 
+test("澄清答案会回到同一会话并恢复规划", () => {
+  const workspace = { ...createWorkspace({ title: "A", prompt: "做一个 app" }), phase: "clarification", clarification: { question: "先做什么？", options: [] } };
+  const updated = answerClarification(workspace, "优先完成运动记录核心流程", "2026-01-01T00:00:04.000Z");
+  assert.equal(updated.phase, "planning");
+  assert.equal(updated.clarificationAnswer, "优先完成运动记录核心流程");
+  assert.equal(updated.messages.at(-1).role, "user");
+});
+
 test("真实模型结果会更新计划、预览和代码", () => {
   const workspace = createWorkspace({ title: "A", prompt: "做一个旅行应用", mode: "team" });
   const updated = applyModelPlan(workspace, {
@@ -90,11 +99,11 @@ test("本地状态可以安全加载与导入", () => {
   const imported = parseImportedState(JSON.stringify(state));
   assert.equal(isValidState(imported), true);
   assert.equal(imported.activeWorkspaceId, "workspace-demo");
-  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v4");
+  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v5");
   assert.throws(() => parseImportedState('{"version":1}'), /有效/);
 
   const brokenStorage = { getItem: () => "{broken" };
-  assert.equal(loadState(brokenStorage).version, 4);
+  assert.equal(loadState(brokenStorage).version, 5);
 });
 
 test("页面为 placeholder 提供显式输入态契约", async () => {

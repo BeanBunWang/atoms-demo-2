@@ -1,25 +1,25 @@
 import {
   AGENTS,
-  MODES,
+  answerClarification,
   applyModelPlan,
   applyRuntimeEvent,
   applyRuntimeResult,
   approvePlan,
   beginAgentRun,
   buildProgress,
-  changeMode,
   createWorkspace,
   isComposerEmpty,
   nextBuildStep,
   publishWorkspace,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=6";
-import { initialState, loadState, saveState } from "./storage.js?v=6";
+} from "./planner.js?v=7";
+import { loadState, saveState } from "./storage.js?v=7";
 
 let state = loadState();
 let buildTimer = null;
 let toastTimer = null;
+let planningActive = false;
 let modelCapability = { realModel: false, model: "local-fallback", checked: false };
 
 const $ = (selector) => document.querySelector(selector);
@@ -32,16 +32,11 @@ const elements = {
   workspaceStatus: $("#workspace-status"),
   agentStack: $("#agent-stack"),
   messageStream: $("#message-stream"),
-  planCard: $("#plan-card"),
-  planList: $("#plan-list"),
-  planStepCount: $("#plan-step-count"),
   promptInput: $("#prompt-input"),
   sendButton: $("#send-button"),
   modeLabel: $("#mode-label"),
   modelLabel: $("#model-label"),
   modelStatus: $("#model-status"),
-  modeButtonLabel: $("#mode-button-label"),
-  modeMenu: $("#mode-menu"),
   appFrame: $("#app-frame"),
   generatedApp: $("#generated-app"),
   previewBrand: $("#preview-brand"),
@@ -67,12 +62,11 @@ const elements = {
   designButton: $("#design-button"),
   designHint: $("#design-hint"),
   publishButton: $("#publish-button"),
-  approvePlanButton: $("#approve-plan-button"),
+  activityPanel: $("#activity-panel"),
   conversationPanel: $("#conversation-panel"),
   mobileViewToggle: $("#mobile-view-toggle"),
   newProjectDialog: $("#new-project-dialog"),
   newProjectForm: $("#new-project-form"),
-  dialogModes: $("#dialog-modes"),
   designDialog: $("#design-dialog"),
   designForm: $("#design-form"),
   publishDialog: $("#publish-dialog"),
@@ -117,7 +111,7 @@ function showToast(message) {
 
 function phaseLabel(workspace) {
   if (workspace.published) return "Published";
-  return { planning: "Understanding", "plan-review": "Plan review", building: "Running", ready: "Ready" }[workspace.phase] || "Draft";
+  return { planning: "Understanding", clarification: "Needs input", "plan-review": "Plan review", building: "Running", ready: "Ready" }[workspace.phase] || "Draft";
 }
 
 function renderProjects() {
@@ -126,7 +120,7 @@ function renderProjects() {
       (workspace) => `
         <button type="button" class="project-item ${workspace.id === state.activeWorkspaceId ? "active" : ""}" data-workspace-id="${escapeHTML(workspace.id)}">
           <span class="project-thumb">${escapeHTML(workspace.title.slice(0, 1).toUpperCase())}</span>
-          <span><strong>${escapeHTML(workspace.title)}</strong><small>${escapeHTML(MODES[workspace.mode].label)} · ${escapeHTML(phaseLabel(workspace))}</small></span>
+          <span><strong>${escapeHTML(workspace.title)}</strong><small>Auto routing · ${escapeHTML(phaseLabel(workspace))}</small></span>
           <i class="project-state ${workspace.published ? "published" : escapeHTML(workspace.phase)}"></i>
         </button>`
     )
@@ -137,17 +131,60 @@ function renderHeader(workspace) {
   elements.workspaceTitle.textContent = workspace.title;
   elements.workspaceStatus.textContent = phaseLabel(workspace);
   elements.workspaceStatus.style.color = workspace.phase === "building" ? "var(--blue)" : "";
-  elements.modeLabel.textContent = `${MODES[workspace.mode].label} mode`;
+  elements.modeLabel.textContent = workspace.intent ? `${workspace.intent.type} · auto routed` : "Auto routing";
   const usedRealModel = workspace.modelSource && workspace.modelSource !== "local-fallback";
   elements.modelLabel.textContent = usedRealModel ? workspace.modelSource : modelCapability.realModel ? modelCapability.model : "Local fallback";
   elements.modelLabel.classList.toggle("connected", usedRealModel || modelCapability.realModel);
-  elements.modeButtonLabel.textContent = MODES[workspace.mode].label;
   elements.publishButton.disabled = workspace.phase !== "ready";
   elements.publishButton.innerHTML = workspace.published ? "Published <span>✓</span>" : "Publish <span>↗</span>";
   elements.agentStack.innerHTML = workspace.agents
     .slice(0, 6)
     .map((agent) => `<img src="${escapeHTML(agent.avatar)}" alt="${escapeHTML(agent.name)}" title="${escapeHTML(agent.name)} · ${escapeHTML(agent.role)}" />`)
     .join("");
+}
+
+function renderWorkingProcess(workspace) {
+  const events = workspace.runtime?.events || [];
+  const useful = events.filter((event) => !["run.completed", "approval.required"].includes(event.type)).slice(-14);
+  const fallback = [
+    { type: "phase.started", message: "I’m getting started." },
+    { type: "phase.started", message: "理解目标、识别约束并判断是否需要澄清。" }
+  ];
+  const steps = useful.length ? useful : fallback;
+  const title = workspace.runtime?.status === "running" || workspace.phase === "building" ? "Working Process" : `Processed ${steps.length} steps`;
+  return `<section class="working-process">
+    <div class="process-heading"><span>◉</span><strong>${escapeHTML(title)}</strong><i>⌃</i></div>
+    <div class="process-timeline">${steps.map((event) => {
+      const agent = AGENTS.find((item) => item.key === event.agent);
+      const isTool = event.type === "tool.called" || event.type === "tool.completed";
+      const text = event.message || event.type;
+      return `<div class="process-step ${isTool ? "tool-step" : ""}"><span></span><div>${isTool ? `<small>${escapeHTML(agent?.name || "Agent")} · ${escapeHTML(event.tool || "tool")}</small>` : ""}<p>${escapeHTML(text)}</p></div></div>`;
+    }).join("")}</div>
+  </section>`;
+}
+
+function renderClarification(workspace) {
+  if (workspace.phase !== "clarification" || !workspace.clarification) return "";
+  const clarification = workspace.clarification;
+  return `<section class="clarification-card">
+    <header>${escapeHTML(clarification.question)}</header>
+    <div class="clarification-options">${clarification.options.map((option, index) => `<button type="button" data-clarification-answer="${escapeHTML(option.label)}"><span>${index + 1}</span><div><strong>${escapeHTML(option.label)}</strong><small>${escapeHTML(option.description)}</small></div><i>›</i></button>`).join("")}</div>
+    <footer>Reply to <b>@Alex</b> · 选择一个方向后继续规划</footer>
+  </section>`;
+}
+
+function renderInlinePlan(workspace) {
+  if (workspace.phase !== "plan-review") return "";
+  return `<section class="plan-card inline-plan ${planningActive ? "model-loading" : ""}">
+    <div class="plan-heading"><span>WORKING PLAN</span><b>${workspace.plan.length} steps</b></div>
+    <div class="plan-list">${workspace.plan.map((step, index) => `<div class="plan-step"><span>${index + 1}</span><div><strong>${escapeHTML(step.title)}</strong><p>${escapeHTML(step.detail)}</p></div></div>`).join("")}</div>
+    <div class="plan-actions"><button class="approve-button" data-plan-action="approve" type="button" ${planningActive ? "disabled" : ""}>${planningActive ? "DeepSeek is planning…" : "Approve plan"}</button><button class="quiet-button" data-plan-action="revise" type="button">Revise</button></div>
+  </section>`;
+}
+
+function renderQuickStarts(workspace) {
+  if (workspace.phase !== "ready") return "";
+  return `<div class="quick-starts">${(workspace.quickStarts || []).map((prompt) => `<button type="button" data-quick-prompt="${escapeHTML(prompt)}">${escapeHTML(prompt)}</button>`).join("")}</div>`;
 }
 
 function renderMessages(workspace) {
@@ -164,14 +201,8 @@ function renderMessages(workspace) {
         <div class="message-body"><div class="message-meta"><strong>${isUser ? "You" : escapeHTML(agent?.name || "Atoms")}</strong><span>${isUser ? "" : escapeHTML(agent?.role || "Agent")}</span></div><div class="message-bubble">${escapeHTML(message.text)}</div></div>
       </article>`;
     })
-    .join("");
+    .join("") + `<article class="message agent process-message"><div class="message-avatar"><img src="${escapeHTML(AGENTS.find((agent) => agent.key === "alex")?.avatar)}" alt="" /></div><div class="message-body"><div class="message-meta"><strong>Alex</strong><span>Engineer</span></div>${renderWorkingProcess(workspace)}${renderClarification(workspace)}${renderInlinePlan(workspace)}${renderQuickStarts(workspace)}</div></article>`;
   if (nearBottom) elements.messageStream.scrollTop = elements.messageStream.scrollHeight;
-
-  elements.planCard.hidden = workspace.phase !== "plan-review";
-  elements.planStepCount.textContent = `${workspace.plan.length} steps`;
-  elements.planList.innerHTML = workspace.plan
-    .map((step, index) => `<div class="plan-step"><span>${index + 1}</span><div><strong>${escapeHTML(step.title)}</strong><p>${escapeHTML(step.detail)}</p></div></div>`)
-    .join("");
 }
 
 function renderPreview(workspace) {
@@ -231,20 +262,6 @@ function renderActivity(workspace) {
   $$("[data-rail]").forEach((button) => button.classList.toggle("active", button.dataset.rail === state.activeRail));
 }
 
-function renderModeMenus(workspace) {
-  const icons = { build: "⚒", team: "◎", race: "↯", research: "⌕" };
-  elements.modeMenu.innerHTML = Object.entries(MODES)
-    .map(
-      ([key, mode]) => `<button type="button" class="mode-option ${workspace.mode === key ? "active" : ""}" data-mode="${key}"><span>${icons[key]}</span><span><strong>${mode.label}</strong><small>${mode.description}</small></span><b>${workspace.mode === key ? "✓" : ""}</b></button>`
-    )
-    .join("");
-  elements.dialogModes.innerHTML = Object.entries(MODES)
-    .map(
-      ([key, mode], index) => `<label class="dialog-mode"><input type="radio" name="mode" value="${key}" ${index === 1 ? "checked" : ""} /><span><strong>${mode.label}</strong><small>${mode.description}</small></span></label>`
-    )
-    .join("");
-}
-
 function renderCapabilities(workspace) {
   const capabilities = workspace.capabilities || {};
   $$('[data-capability]').forEach((input) => { input.checked = Boolean(capabilities[input.dataset.capability]); });
@@ -262,7 +279,6 @@ function render() {
   renderMessages(workspace);
   renderPreview(workspace);
   renderActivity(workspace);
-  renderModeMenus(workspace);
   renderCapabilities(workspace);
   syncComposerState();
 }
@@ -298,9 +314,8 @@ async function detectModelCapability() {
 }
 
 function setModelPlanning(active) {
-  elements.planCard.classList.toggle("model-loading", active);
-  elements.approvePlanButton.disabled = active;
-  elements.approvePlanButton.textContent = active ? "DeepSeek is planning…" : "Approve & build";
+  planningActive = active;
+  renderMessages(activeWorkspace());
 }
 
 async function hydratePlanWithModel(workspace, prompt) {
@@ -351,7 +366,7 @@ async function runLiveAgent(workspace, stage) {
         stage,
         prompt: started.prompt,
         capabilities: started.capabilities,
-        context: { intent: started.intent, plan: started.runtimePlan, preview: started.preview, hasExistingApp: started.messages.filter((message) => message.role === "user").length > 1 }
+        context: { intent: started.intent, plan: started.runtimePlan, preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.runtimePlan) }
       })
     });
     if (!response.ok || !response.body) throw new Error("Agent runtime 不可用");
@@ -377,7 +392,8 @@ async function runLiveAgent(workspace, stage) {
       if (done) break;
     }
     if (failed) throw failed;
-    showToast(stage === "plan" ? "意图识别与动态计划已完成" : "Agent runtime 已完成构建与验证");
+    const current = state.workspaces.find((item) => item.id === workspace.id);
+    showToast(current?.phase === "clarification" ? "Alex 需要你补充一个关键选择" : stage === "plan" ? "意图识别与动态计划已完成" : "Agent runtime 已完成构建与验证");
     return true;
   } catch (error) {
     const current = state.workspaces.find((item) => item.id === workspace.id);
@@ -459,37 +475,37 @@ $("#composer-form").addEventListener("submit", async (event) => {
   if (!(await runLiveAgent(updated, "plan")) && !(await hydratePlanWithModel(updated, updated.prompt))) showToast("Mike 已生成本地变更计划");
 });
 
-$("#approve-plan-button").addEventListener("click", async () => {
-  const current = activeWorkspace();
-  if (modelCapability.realModel && current.runtimePlan && current.intent) {
-    await runLiveAgent(current, "build");
+elements.messageStream.addEventListener("click", async (event) => {
+  const answer = event.target.closest("[data-clarification-answer]")?.dataset.clarificationAnswer;
+  if (answer) {
+    const updated = answerClarification(activeWorkspace(), answer);
+    replaceWorkspace(updated);
+    render();
+    if (!(await runLiveAgent(updated, "plan"))) showToast("已记录选择并生成本地计划");
     return;
   }
-  const workspace = approvePlan(current);
-  replaceWorkspace(workspace);
-  render();
-  startBuildLoop();
-});
-
-$("#revise-plan-button").addEventListener("click", () => {
-  elements.promptInput.value = "请调整计划：";
-  syncComposerState();
-  elements.promptInput.focus();
-});
-
-$("#mode-button").addEventListener("click", () => {
-  elements.modeMenu.hidden = !elements.modeMenu.hidden;
-});
-elements.modeMenu.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-mode]");
-  if (!button) return;
-  const current = activeWorkspace();
-  if (current.phase === "building") return showToast("运行中不能切换模式");
-  const updated = changeMode(current, button.dataset.mode);
-  replaceWorkspace(updated);
-  elements.modeMenu.hidden = true;
-  render();
-  if (!(await runLiveAgent(updated, "plan"))) showToast(`已切换到 ${MODES[button.dataset.mode].label} mode`);
+  const action = event.target.closest("[data-plan-action]")?.dataset.planAction;
+  if (action === "revise") {
+    elements.promptInput.value = "请调整计划：";
+    syncComposerState();
+    elements.promptInput.focus();
+    return;
+  }
+  if (action === "approve") {
+    const current = activeWorkspace();
+    if (modelCapability.realModel && current.runtimePlan && current.intent) return runLiveAgent(current, "build");
+    const workspace = approvePlan(current);
+    replaceWorkspace(workspace);
+    render();
+    startBuildLoop();
+    return;
+  }
+  const quickPrompt = event.target.closest("[data-quick-prompt]")?.dataset.quickPrompt;
+  if (quickPrompt) {
+    elements.promptInput.value = quickPrompt;
+    syncComposerState();
+    $("#composer-form").requestSubmit();
+  }
 });
 
 elements.projectList.addEventListener("click", (event) => {
@@ -509,7 +525,7 @@ $("#restart-button").addEventListener("click", showNewProjectDialog);
 elements.newProjectForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(elements.newProjectForm);
-  const workspace = createWorkspace({ title: data.get("title"), prompt: data.get("prompt"), mode: data.get("mode") });
+  const workspace = createWorkspace({ title: data.get("title"), prompt: data.get("prompt"), mode: "auto" });
   state.workspaces = [workspace, ...state.workspaces];
   state.activeWorkspaceId = workspace.id;
   state.designMode = false;
@@ -522,13 +538,14 @@ elements.newProjectForm.addEventListener("submit", async (event) => {
 $$('[data-close-dialog]').forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
 $$('[data-panel]').forEach((button) =>
   button.addEventListener("click", () => {
-    state.activePanel = button.dataset.panel;
+    state.activePanel = state.activePanel === "code" ? "preview" : "code";
     persist();
-    $$('[data-panel]').forEach((item) => item.classList.toggle("active", item.dataset.panel === state.activePanel));
+    $$('[data-panel]').forEach((item) => item.classList.toggle("active", state.activePanel === "code"));
     elements.appFrame.hidden = state.activePanel !== "preview";
     elements.codeView.hidden = state.activePanel !== "code";
   })
 );
+$("#activity-toggle").addEventListener("click", () => elements.activityPanel.classList.toggle("open"));
 $$('[data-device]').forEach((button) =>
   button.addEventListener("click", () => {
     state.device = button.dataset.device;
@@ -645,11 +662,10 @@ elements.sidebarScrim.addEventListener("click", () => {
 });
 
 document.addEventListener("click", (event) => {
-  if (!event.target.closest(".mode-menu-wrap")) elements.modeMenu.hidden = true;
   if (!event.target.closest(".capability-wrap")) elements.capabilityMenu.hidden = true;
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") elements.modeMenu.hidden = true;
+  if (event.key === "Escape") elements.activityPanel.classList.remove("open");
   if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !elements.sendButton.disabled) $("#composer-form").requestSubmit();
 });
 

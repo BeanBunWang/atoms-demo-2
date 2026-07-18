@@ -1,4 +1,5 @@
 export const MODES = {
+  auto: { label: "Auto", description: "根据意图自动选择最少必要专家", agents: ["mike", "emma", "bob", "alex", "david"] },
   build: { label: "Build", description: "Alex 主导，快速完成可运行版本", agents: ["mike", "emma", "alex", "david"] },
   team: { label: "Team", description: "产品、架构、工程和数据协作", agents: ["mike", "emma", "bob", "alex", "david"] },
   race: { label: "Race", description: "两条实现路线并行比较", agents: ["mike", "emma", "bob", "alex", "adrian", "david"] },
@@ -129,7 +130,7 @@ export function createWorkspace(input, options = {}) {
   const now = options.now || new Date().toISOString();
   const prompt = String(input.prompt || "").trim();
   const title = String(input.title || inferTitle(prompt));
-  const mode = MODES[input.mode] ? input.mode : "team";
+  const mode = MODES[input.mode] ? input.mode : "auto";
   const preview = buildPreview(prompt, title);
   const selectedAgents = MODES[mode].agents.map((key, index) => ({
     ...agentByKey(key),
@@ -149,7 +150,10 @@ export function createWorkspace(input, options = {}) {
     modelSource: "local-fallback",
     intent: null,
     runtime: { status: "idle", phase: "idle", events: [], verification: null, replans: 0 },
-    capabilities: input.capabilities || { teamMode: mode === "team", deepResearch: mode === "research", raceMode: mode === "race", attachments: [], connectors: [] },
+    capabilities: input.capabilities || { teamMode: true, deepResearch: false, raceMode: false, attachments: [], connectors: [] },
+    clarification: null,
+    clarificationAnswer: null,
+    quickStarts: ["Add user profiles", "Add progress tracking", "Add social sharing"],
     preview,
     code: createCode(preview),
     plan: createPlan(prompt),
@@ -161,7 +165,7 @@ export function createWorkspace(input, options = {}) {
     ],
     messages: [
       { id: uniqueId("msg"), role: "user", text: prompt, time: now },
-      { id: uniqueId("msg"), role: "agent", agent: "mike", text: "我会先识别任务意图和约束，再安排必要专家生成可审批的执行计划。", time: now }
+      { id: uniqueId("msg"), role: "agent", agent: "alex", text: "I’m getting started. 我会先理解目标；只有方向会明显分叉时才向你澄清，然后生成可审批计划。", time: now }
     ]
   };
 }
@@ -171,6 +175,7 @@ function runtimeLog(event) {
     "run.started": "Runtime started",
     "phase.started": event.message,
     "intent.classified": `Intent: ${event.intent?.type} · ${event.intent?.domain}`,
+    "clarification.required": event.message,
     "plan.created": event.message,
     "approval.required": "Approval gate reached",
     "agent.started": `${event.agent} started: ${event.message}`,
@@ -215,6 +220,7 @@ export function applyRuntimeEvent(workspace, event, now = new Date().toISOString
   const plan = event.plan || workspace.runtimePlan;
   const agents = plan ? agentsFromPlan(plan, event.type === "agent.started" ? event.agent : null, [...completedAgents]) : workspace.agents;
   let phase = workspace.phase;
+  if (event.type === "clarification.required") phase = "clarification";
   if (event.type === "approval.required") phase = "plan-review";
   if (event.type === "run.failed") phase = workspace.intent ? "plan-review" : "draft";
   return {
@@ -229,6 +235,7 @@ export function applyRuntimeEvent(workspace, event, now = new Date().toISOString
       replans: (runtime.replans || 0) + (event.type === "replan.created" ? 1 : 0)
     },
     intent: event.intent || workspace.intent,
+    clarification: event.clarification || workspace.clarification,
     runtimePlan: event.plan || workspace.runtimePlan,
     plan: event.plan ? event.plan.steps.map((step) => ({ title: `${agentByKey(step.agent)?.name || step.agent} · ${step.title}`, detail: step.goal, tool: step.tool })) : workspace.plan,
     agents,
@@ -246,11 +253,20 @@ function filesFromArtifact(artifact) {
 export function applyRuntimeResult(workspace, event, model = "deepseek-v4-flash", now = new Date().toISOString()) {
   if (event.stage === "plan") {
     const updated = applyRuntimeEvent(workspace, event, now);
+    if (event.status === "awaiting_clarification") {
+      return {
+        ...updated,
+        phase: "clarification",
+        modelSource: model,
+        clarification: event.clarification || updated.clarification
+      };
+    }
     return {
       ...updated,
       title: event.plan?.title || updated.title,
       phase: "plan-review",
       modelSource: model,
+      clarification: null,
       messages: [...updated.messages, { id: uniqueId("msg"), role: "agent", agent: "mike", text: `${event.plan.summary} 我按意图只安排了必要专家；批准后开始执行。`, time: now, model }]
     };
   }
@@ -267,6 +283,19 @@ export function applyRuntimeResult(workspace, event, model = "deepseek-v4-flash"
     modelSource: model,
     agents: updated.agents.map((agent) => ({ ...agent, status: "done", message: "已完成并同步产物" })),
     messages: [...updated.messages, { id: uniqueId("msg"), role: "agent", agent: "mike", text: artifact.assistantMessage, time: now, model }]
+  };
+}
+
+export function answerClarification(workspace, answer, now = new Date().toISOString()) {
+  const text = String(answer || "").trim().slice(0, 240);
+  if (workspace.phase !== "clarification" || !text) return workspace;
+  return {
+    ...workspace,
+    phase: "planning",
+    clarificationAnswer: text,
+    clarification: null,
+    updatedAt: now,
+    messages: [...workspace.messages, { id: uniqueId("msg"), role: "user", text, time: now }]
   };
 }
 
@@ -382,6 +411,8 @@ export function submitPrompt(workspace, prompt, now = new Date().toISOString()) 
     preview: updatedPreview,
     code: createCode(updatedPreview),
     plan: createPlan(text),
+    clarification: null,
+    clarificationAnswer: null,
     agents,
     updatedAt: now,
     messages: [
@@ -425,15 +456,8 @@ export function publishWorkspace(workspace, now = new Date().toISOString()) {
 }
 
 export function createDemoWorkspace() {
-  let workspace = createWorkspace(
-    {
-      title: "周末漫游",
-      prompt: "做一个周末城市漫游应用，让用户收藏灵感地点并生成一条松弛、好拍照的路线",
-      mode: "team"
-    },
+  return createWorkspace(
+    { title: "健身 app", prompt: "做一个健身 app", mode: "auto" },
     { id: "workspace-demo", now: "2026-07-18T08:00:00.000Z" }
   );
-  workspace = approvePlan(workspace, "2026-07-18T08:00:02.000Z");
-  while (workspace.phase === "building") workspace = nextBuildStep(workspace, "2026-07-18T08:00:09.000Z");
-  return workspace;
 }
