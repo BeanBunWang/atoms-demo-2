@@ -23,7 +23,16 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
-html, body { height: 100%; }
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+@supports (height: 100dvh) {
+  html, body { height: 100dvh; }
+}
 
 body {
   margin: 0;
@@ -90,7 +99,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .demo-banner i { font-style: normal; }
 .demo-banner i.connected { font-weight: 700; }
 
-.app-shell { height: 100%; padding-top: var(--banner-height); }
+.app-shell { height: 100%; min-height: 0; overflow: hidden; padding-top: var(--banner-height); }
 
 .sidebar {
   position: fixed;
@@ -178,7 +187,14 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .user-avatar { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: #202125; color: white; font-size: 9px; font-weight: 750; }
 
 .sidebar-scrim { display: none; }
-.workspace { height: 100%; margin-left: var(--sidebar-width); }
+.workspace {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: 58px minmax(0, 1fr);
+  overflow: hidden;
+  margin-left: var(--sidebar-width);
+}
 
 .topbar {
   display: flex;
@@ -208,7 +224,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .publish-button { display: flex; align-items: center; gap: 12px; border: 1px solid #1d5ee4; background: var(--blue); color: white; }
 .publish-button:disabled { border-color: var(--line); background: var(--surface-muted); color: var(--text-faint); }
 
-.builder { display: grid; height: calc(100% - 58px); min-height: 0; grid-template-columns: minmax(290px, 320px) minmax(440px, 1fr) minmax(248px, 280px); grid-template-rows: minmax(0, 1fr); overflow: hidden; }
+.builder { display: grid; height: 100%; min-height: 0; grid-template-columns: minmax(290px, 320px) minmax(440px, 1fr) minmax(248px, 280px); grid-template-rows: minmax(0, 1fr); overflow: hidden; }
 .conversation-panel, .viewer-panel, .activity-panel { min-width: 0; min-height: 0; background: var(--surface); }
 .conversation-panel { display: flex; overflow: hidden; flex-direction: column; border-right: 1px solid var(--line); }
 .panel-titlebar { display: flex; height: 48px; flex: 0 0 auto; align-items: center; justify-content: space-between; padding: 0 13px 0 16px; border-bottom: 1px solid var(--line); }
@@ -220,7 +236,17 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .icon-button { display: grid; width: 27px; height: 27px; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; }
 .icon-button:hover { background: var(--surface-soft); }
 
-.message-stream { min-height: 0; flex: 1; overflow: auto; padding: 18px 14px 10px; }
+.message-stream {
+  min-height: 0;
+  flex: 1 1 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 14px 10px;
+}
 .message { display: flex; gap: 9px; margin-bottom: 17px; animation: message-in 240ms ease-out; }
 .message.user { flex-direction: row-reverse; }
 .message-avatar { width: 26px; height: 26px; flex: 0 0 auto; overflow: hidden; border-radius: 50%; background: var(--surface-muted); }
@@ -578,7 +604,18 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .design-sidebar strong { display: flex; align-items: center; gap: 6px; margin-bottom: 9px; padding: 0 7px; color: #456de0; font-size: 12px; }
 .design-sidebar button { padding: 9px 10px; border: 0; border-radius: 7px; background: transparent; cursor: pointer; text-align: left; font-size: 11px; }
 .design-sidebar button.active { background: #efeff1; font-weight: 760; }
-.design-preview { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 12px; background: #fbfbfc; }
+.design-preview {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+  background: #fbfbfc;
+}
 .design-pane { min-width: 0; }
 .visual-editor-pane { min-height: 100%; }
 .design-workbench { min-height: 100%; padding: clamp(22px,4vw,46px); background: #fff; }
@@ -608,7 +645,7 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 .theme-grid span small { color: var(--text-faint); font-size: 8px; line-height: 1.45; }
 .theme-grid > button > strong { color: var(--blue); font-size: 8px; }
 .app-frame { min-height: calc(100vh - 165px); box-shadow: 0 8px 22px rgba(27,30,40,.09); }
-.activity-panel { position: fixed; z-index: 70; top: 112px; right: 0; bottom: 0; display: flex; width: 330px; height: auto; box-shadow: -15px 0 40px rgba(20,22,30,.16); transform: translateX(105%); transition: transform 180ms ease; }
+.activity-panel { position: fixed; z-index: 70; top: 112px; right: 0; bottom: 0; display: flex; width: 330px; height: auto; overflow: hidden; box-shadow: -15px 0 40px rgba(20,22,30,.16); transform: translateX(105%); transition: transform 180ms ease; }
 .activity-panel.open { transform: translateX(0); }
 .dialog-card { width: min(520px, calc(100vw - 28px)); }
 
@@ -618,7 +655,8 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 }
 
 @media (max-width: 760px) {
-  .builder { grid-template-columns: 1fr; }
+  body { overflow: hidden; }
+  .builder { height: 100%; grid-template-columns: 1fr; }
   .message-stream { padding: 20px 16px 10px; }
   .composer { margin-inline: 14px; }
   .app-viewer-pill { display: none; }
@@ -631,4 +669,26 @@ button:disabled { cursor: not-allowed; opacity: .48; }
   .design-preview { padding: 8px; }
   .design-workbench { padding: 22px 16px; }
   .theme-grid { grid-template-columns: 1fr; }
+}
+
+:where(.message-stream, .design-preview, .agent-progress, .terminal, .file-tree) {
+  scrollbar-width: thin;
+  scrollbar-color: #c7c8ce transparent;
+}
+
+:where(.message-stream, .design-preview, .agent-progress, .terminal, .file-tree)::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+:where(.message-stream, .design-preview, .agent-progress, .terminal, .file-tree)::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #c7c8ce;
+  background-clip: padding-box;
+}
+
+:where(.message-stream, .design-preview, .agent-progress, .terminal, .file-tree)::-webkit-scrollbar-thumb:hover {
+  background: #aeb0b8;
+  background-clip: padding-box;
 }

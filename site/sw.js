@@ -1,8 +1,8 @@
-const CACHE_NAME = "atoms-demo-v8";
+const CACHE_NAME = "atoms-demo-v9";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=8",
+  "./styles.css?v=9",
   "./js/app.js?v=8",
   "./js/planner.js?v=8",
   "./js/storage.js?v=8",
