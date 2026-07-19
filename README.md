@@ -66,6 +66,6 @@ npm run deploy:cloudflare
 
 ## 文档
 
-- [交付说明](./DELIVERY_NOTES.md)
-- [设计与架构](./DESIGN.md)
+- [交付说明](./交付说明.md)
+- [架构设计](./架构设计.md)
 - [品牌与视觉来源](./BRAND_SPEC.md)
