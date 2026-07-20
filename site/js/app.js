@@ -13,8 +13,8 @@ import {
   publishWorkspace,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=12";
-import { loadState, saveState } from "./storage.js?v=12";
+} from "./planner.js?v=13";
+import { loadState, saveState } from "./storage.js?v=13";
 import {
   COMPONENT_LIBRARY,
   THEME_PRESETS,
@@ -23,9 +23,9 @@ import {
   normalizeDesignTab,
   normalizePreviewInteraction,
   themePatch
-} from "./viewer.js?v=12";
-import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=12";
-import { buildPreviewFixPrompt, recordPreviewVerification } from "./preview-loop.js?v=12";
+} from "./viewer.js?v=13";
+import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=13";
+import { buildPreviewFixPrompt, recordPreviewVerification } from "./preview-loop.js?v=13";
 
 let state = loadState();
 const previewOnlyWorkspaceId = new URLSearchParams(location.search).get("preview");

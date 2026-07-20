@@ -130,6 +130,18 @@ test("本地状态可以安全加载与导入", () => {
   assert.equal(loadState(brokenStorage).version, 5);
 });
 
+test("旧工作区会迁移到带 revision 和稳定 section ID 的产物", () => {
+  const legacy = initialState();
+  legacy.workspaces[0].hasBuiltArtifact = true;
+  delete legacy.workspaces[0].artifactRevision;
+  delete legacy.workspaces[0].previewFeedback;
+  legacy.workspaces[0].preview.sections = legacy.workspaces[0].preview.sections.map(({ id, ...section }) => section);
+  const migrated = loadState({ getItem: () => JSON.stringify(legacy) });
+  assert.equal(migrated.workspaces[0].artifactRevision, 1);
+  assert.deepEqual(migrated.workspaces[0].preview.sections.map((section) => section.id), ["section-1", "section-2", "section-3"]);
+  assert.deepEqual(migrated.workspaces[0].previewFeedback, []);
+});
+
 test("页面为 placeholder 提供显式输入态契约", async () => {
   const [html, css, app] = await Promise.all([
     readFile(new URL("../site/index.html", import.meta.url), "utf8"),

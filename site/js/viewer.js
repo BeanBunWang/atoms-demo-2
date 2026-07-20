@@ -1,4 +1,4 @@
-import { initialCalculatorState, initialSnakeState, normalizeCalculatorState, normalizeSnakeState } from "./interactive.js?v=12";
+import { initialCalculatorState, initialSnakeState, normalizeCalculatorState, normalizeSnakeState } from "./interactive.js?v=13";
 
 export const DESIGN_TABS = ["visual", "library", "theme"];
 

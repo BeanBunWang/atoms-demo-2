@@ -1,4 +1,4 @@
-import { createDemoWorkspace } from "./planner.js?v=12";
+import { createDemoWorkspace } from "./planner.js?v=13";
 
 export const STORAGE_KEY = "atoms-demo-workspace-v5";
 
@@ -36,13 +36,33 @@ export function isValidState(value) {
   );
 }
 
+function migrateWorkspace(workspace) {
+  const sections = Array.isArray(workspace.preview?.sections)
+    ? workspace.preview.sections.map((section, index) => ({ ...section, id: section.id || `section-${index + 1}` }))
+    : workspace.preview?.sections;
+  const artifactRevision = Math.max(0, Number(workspace.artifactRevision) || (workspace.hasBuiltArtifact ? 1 : 0));
+  return {
+    ...workspace,
+    artifactRevision,
+    lastKnownGood: workspace.lastKnownGood || null,
+    pendingChange: workspace.pendingChange || null,
+    previewVerification: workspace.previewVerification || null,
+    previewFeedback: Array.isArray(workspace.previewFeedback) ? workspace.previewFeedback : [],
+    preview: workspace.preview ? { ...workspace.preview, sections } : workspace.preview
+  };
+}
+
+function migrateState(state) {
+  return { ...state, workspaces: state.workspaces.map(migrateWorkspace) };
+}
+
 export function loadState(storage = globalThis.localStorage) {
   if (!storage) return initialState();
   try {
     const raw = storage.getItem(STORAGE_KEY);
     if (!raw) return initialState();
     const parsed = JSON.parse(raw);
-    return isValidState(parsed) ? parsed : initialState();
+    return isValidState(parsed) ? migrateState(parsed) : initialState();
   } catch {
     return initialState();
   }
@@ -61,5 +81,5 @@ export function saveState(state, storage = globalThis.localStorage) {
 export function parseImportedState(text) {
   const parsed = JSON.parse(text);
   if (!isValidState(parsed)) throw new Error("这不是有效的 Atoms Demo 工作区快照");
-  return parsed;
+  return migrateState(parsed);
 }
