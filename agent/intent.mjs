@@ -71,10 +71,16 @@ export function normalizeIntent(value, prompt, context = {}) {
   const fallback = inferIntent(prompt, context);
   const confidence = Number(value?.confidence);
   const needsClarification = typeof value?.needsClarification === "boolean" ? value.needsClarification : fallback.needsClarification;
+  const explicitlyReplacesApp = /重做|重新建|新建另一个|替换整个|从头构建/.test(String(prompt));
+  const type = !context.hasExistingApp && value?.type === "modify_app"
+    ? "build_app"
+    : context.hasExistingApp && value?.type === "build_app" && !explicitlyReplacesApp
+      ? "modify_app"
+      : value?.type;
   return {
-    type: INTENT_TYPES.has(value?.type) ? value.type : fallback.type,
+    type: INTENT_TYPES.has(type) ? type : fallback.type,
     goal: clean(value?.goal, fallback.goal, 220),
-    domain: clean(value?.domain, fallback.domain, 40),
+    domain: fallback.domain !== "通用产品" ? fallback.domain : clean(value?.domain, fallback.domain, 40),
     audience: clean(value?.audience, fallback.audience, 80),
     entities: list(value?.entities, fallback.entities, 7),
     requestedFeatures: list(value?.requestedFeatures, fallback.requestedFeatures, 8),

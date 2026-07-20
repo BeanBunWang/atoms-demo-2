@@ -3,13 +3,16 @@ import assert from "node:assert/strict";
 
 import { inferIntent, normalizeIntent } from "../agent/intent.mjs";
 import { runAgentRuntime } from "../agent/runtime.mjs";
-import { normalizeArtifact, normalizePlan, validateArtifact } from "../agent/tools.mjs";
+import { applyPreviewPatch, normalizeArtifact, normalizePlan, validateArtifact } from "../agent/tools.mjs";
 
 test("意图路由会区分构建、研究和数据分析", () => {
   assert.equal(inferIntent("做一个宠物疫苗提醒应用").type, "build_app");
   assert.equal(inferIntent("研究宠物保险市场和主要竞品").type, "research");
   assert.equal(inferIntent("分析销售漏斗并生成看板").type, "analyze_data");
   assert.equal(normalizeIntent({ type: "unknown" }, "优化现有应用", { hasExistingApp: true }).type, "modify_app");
+  assert.equal(normalizeIntent({ type: "modify_app" }, "做一个计算器", { hasExistingApp: false }).type, "build_app");
+  assert.equal(normalizeIntent({ type: "build_app" }, "增加百分比", { hasExistingApp: true }).type, "modify_app");
+  assert.equal(normalizeIntent({ type: "build_app", domain: "productivity" }, "做一个计算器", { hasExistingApp: false }).domain, "计算器");
 });
 
 test("计划按意图选择专家并确保最后验证", () => {
@@ -96,6 +99,37 @@ test("增量修改默认保留已有应用交互类型", () => {
   assert.equal(artifact.preview.themeId, "studio");
 });
 
+test("增量 patch 只修改指定能力和稳定 ID 模块", () => {
+  const previous = {
+    appType: "calculator", title: "专业计算器", accent: "#112233", capabilities: ["basic-operations"],
+    sections: [
+      { id: "display", type: "stats", title: "结果" },
+      { id: "keys", type: "cards", title: "按键" },
+      { id: "history", type: "list", title: "历史" }
+    ]
+  };
+  const patched = applyPreviewPatch(previous, {
+    set: { capabilities: ["basic-operations", "percent"] },
+    sectionOps: [{ op: "update", id: "keys", value: { title: "含百分比的按键" } }]
+  });
+  assert.equal(patched.title, previous.title);
+  assert.equal(patched.accent, previous.accent);
+  assert.equal(patched.sections[0].title, "结果");
+  assert.equal(patched.sections[1].title, "含百分比的按键");
+  assert.deepEqual(previous.capabilities, ["basic-operations"]);
+});
+
+test("修改产物带版本且 no-op 会被验证拒绝", () => {
+  const previous = normalizeArtifact({ preview: { title: "计算器", appType: "calculator", sections: [{ id: "a", type: "stats", title: "结果" }, { id: "b", type: "cards", title: "按键" }, { id: "c", type: "list", title: "历史" }] } }, inferIntent("做一个计算器")).preview;
+  const intent = normalizeIntent({ type: "modify_app", goal: "保持不变", domain: "计算器" }, "保持不变", { hasExistingApp: true });
+  const artifact = normalizeArtifact({ patch: { set: {} } }, intent, { previousPreview: previous, baseRevision: 4 });
+  const verification = validateArtifact(artifact, intent, { previousPreview: previous, baseRevision: 4 });
+  assert.equal(artifact.baseRevision, 4);
+  assert.equal(artifact.nextRevision, 5);
+  assert.equal(verification.passed, false);
+  assert.match(verification.issues.join(" "), /没有产生/);
+});
+
 test("runtime 先计划审批，再执行工具、生成产物并验证", async () => {
   const events = [];
   const responses = [
@@ -151,4 +185,26 @@ test("runtime 只在关键方向缺失时暂停并请求结构化澄清", async 
   assert.equal(calls, 1);
   assert.ok(events.some((event) => event.type === "clarification.required"));
   assert.ok(!events.some((event) => event.type === "plan.created"));
+});
+
+test("首次生成连续验证失败时回落到可操作安全产物", async () => {
+  const intent = inferIntent("做一个计算器");
+  const plan = normalizePlan({}, intent);
+  const events = [];
+  const invalid = { preview: { title: "旅行模板", eyebrow: "WEEKEND", subtitle: "收藏周末路线", primaryAction: "生成路线", sections: [
+    { id: "a", type: "stats", title: "路线", items: [{ title: "周末路线" }] },
+    { id: "b", type: "cards", title: "景点", items: [{ title: "城市公园" }] },
+    { id: "c", type: "list", title: "收藏", items: [{ title: "旅行灵感" }] }
+  ] }, files: ["src/App.jsx"] };
+  const result = await runAgentRuntime({
+    stage: "build",
+    prompt: "做一个计算器",
+    context: { intent, plan, artifactRevision: 0 },
+    complete: async () => invalid,
+    emit: (event) => events.push(event)
+  });
+  assert.equal(result.status, "ready");
+  assert.equal(result.artifact.preview.appType, "calculator");
+  assert.equal(result.artifact.preview.title, "计算器助手");
+  assert.ok(events.some((event) => event.type === "runtime.fallback"));
 });

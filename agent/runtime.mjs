@@ -1,6 +1,6 @@
 import { inferIntent, intentPrompt, normalizeIntent } from "./intent.mjs";
 import { artifactPrompt, planPrompt, repairPrompt } from "./prompts.mjs";
-import { executeTool, normalizeArtifact, normalizePlan, validateArtifact } from "./tools.mjs";
+import { createDeterministicArtifactUpdate, executeTool, normalizeArtifact, normalizePlan, validateArtifact } from "./tools.mjs";
 
 const runId = () => `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -30,7 +30,7 @@ export async function runAgentRuntime({ stage, prompt, context = {}, capabilitie
       ? `${prompt}\n用户对澄清问题的回答：${context.clarificationAnswer}`
       : prompt;
     send("phase.started", { phase: "planning", agent: "mike", tool: "task_router", message: "选择专家并生成依赖顺序" });
-    plan = normalizePlan(await complete(planPrompt({ prompt: resolvedPrompt, intent, capabilities })), intent);
+    plan = normalizePlan(await complete(planPrompt({ prompt: resolvedPrompt, intent, capabilities, context })), intent);
     send("plan.created", { phase: "planning", agent: "mike", plan, message: `已路由 ${new Set(plan.steps.map((step) => step.agent)).size} 位专家，共 ${plan.steps.length} 步` });
     send("approval.required", { phase: "approval", agent: "mike", message: "计划会改变产品范围，等待批准后再执行" });
     send("run.completed", { stage: "plan", status: "awaiting_approval", intent, plan });
@@ -47,17 +47,24 @@ export async function runAgentRuntime({ stage, prompt, context = {}, capabilitie
     send("tool.completed", { phase: "execution", agent: step.agent, tool: step.tool, stepId: step.id, output, message: output.summary });
   }
   send("artifact.generating", { phase: "execution", agent: "alex", tool: "compose_app", message: "按话题生成页面结构、真实文案与示例数据" });
-  let artifact = normalizeArtifact(await complete(artifactPrompt({ prompt, intent, plan, capabilities, previousPreview: context.preview, toolOutputs })), intent, { previousPreview: context.preview });
+  const baseRevision = Math.max(0, Number(context.artifactRevision) || 0);
+  let artifact = normalizeArtifact(await complete(artifactPrompt({ prompt, intent, plan, capabilities, previousPreview: context.preview, toolOutputs, baseRevision })), intent, { previousPreview: context.preview, baseRevision });
   send("artifact.created", { phase: "execution", agent: "alex", artifact, message: `已生成 ${artifact.preview.template} 布局和 ${artifact.preview.sections.length} 个话题模块` });
 
   send("verification.started", { phase: "verification", agent: "mike", tool: "validate_artifact", message: "检查结构、话题关联、布局差异和交付文件" });
-  let verification = validateArtifact(artifact, intent);
+  let verification = validateArtifact(artifact, intent, { previousPreview: context.preview, baseRevision });
   if (!verification.passed) {
     send("replan.created", { phase: "replanning", agent: "mike", issues: verification.issues, message: `发现 ${verification.issues.length} 个问题，触发一次修复` });
-    artifact = normalizeArtifact(await complete(repairPrompt({ prompt, intent, plan, artifact, issues: verification.issues })), intent, { previousPreview: context.preview });
-    verification = validateArtifact(artifact, intent);
+    artifact = normalizeArtifact(await complete(repairPrompt({ prompt, intent, plan, artifact, issues: verification.issues })), intent, { previousPreview: context.preview, baseRevision });
+    verification = validateArtifact(artifact, intent, { previousPreview: context.preview, baseRevision });
+  }
+  if (!verification.passed) {
+    artifact = createDeterministicArtifactUpdate(intent, { previousPreview: context.preview, baseRevision });
+    verification = validateArtifact(artifact, intent, { previousPreview: context.preview, baseRevision });
+    send("runtime.fallback", { phase: "replanning", message: verification.passed ? `模型${context.preview ? "补丁" : "产物"}未通过验证，已应用确定性${context.preview ? "最小补丁" : "安全产物"}` : "确定性产物仍未通过验证" });
   }
   send("verification.completed", { phase: "verification", agent: "mike", verification, message: verification.passed ? "全部验证通过" : `仍有 ${verification.issues.length} 个非阻塞问题` });
-  send("run.completed", { stage: "build", status: verification.passed ? "ready" : "ready_with_warnings", intent, plan, artifact, verification });
-  return { id, status: verification.passed ? "ready" : "ready_with_warnings", intent, plan, artifact, verification };
+  const status = verification.passed ? "ready" : "failed_verification";
+  send("run.completed", { stage: "build", status, intent, plan, artifact, verification });
+  return { id, status, intent, plan, artifact, verification };
 }

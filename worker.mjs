@@ -74,11 +74,23 @@ function sanitizeRunBody(raw) {
   const prompt = cleanText(raw?.prompt, "", 800);
   const capabilities = sanitizeCapabilities(raw?.capabilities);
   const rawContext = raw?.context && typeof raw.context === "object" ? raw.context : {};
-  const intent = rawContext.intent ? normalizeIntent(rawContext.intent, prompt, { capabilities }) : undefined;
+  const intentContext = { capabilities, hasExistingApp: Boolean(rawContext.hasExistingApp) };
+  const intent = rawContext.intent ? normalizeIntent(rawContext.intent, prompt, intentContext) : undefined;
   const plan = intent && rawContext.plan ? normalizePlan(rawContext.plan, intent) : undefined;
-  const preview = intent && rawContext.preview
-    ? normalizeArtifact({ preview: rawContext.preview, files: ["src/App.jsx"] }, intent).preview
+  const contextIntent = intent || normalizeIntent({ type: rawContext.hasExistingApp ? "modify_app" : "build_app" }, prompt, intentContext);
+  const baseRevision = Math.max(0, Math.floor(Number(rawContext.artifactRevision) || 0));
+  const preview = rawContext.preview
+    ? normalizeArtifact({ preview: rawContext.preview, files: ["src/App.jsx"] }, contextIntent, { baseRevision }).preview
     : undefined;
+  const previewVerification = rawContext.previewVerification && typeof rawContext.previewVerification === "object"
+    ? { status: rawContext.previewVerification.status === "passed" ? "passed" : "failed", issues: sanitizeList(rawContext.previewVerification.issues, 6, 120), revision: Math.max(0, Math.floor(Number(rawContext.previewVerification.revision) || 0)) }
+    : undefined;
+  const previewFeedback = (Array.isArray(rawContext.previewFeedback) ? rawContext.previewFeedback : []).slice(-8).map((item) => ({
+    type: cleanText(item?.type, "preview.feedback", 40),
+    source: cleanText(item?.source, "preview", 40),
+    revision: Math.max(0, Math.floor(Number(item?.revision) || 0)),
+    issues: sanitizeList(item?.issues, 4, 100)
+  }));
   return {
     stage: raw?.stage === "build" ? "build" : "plan",
     prompt,
@@ -87,6 +99,9 @@ function sanitizeRunBody(raw) {
       intent,
       plan,
       preview,
+      artifactRevision: baseRevision,
+      previewVerification,
+      previewFeedback,
       hasExistingApp: Boolean(rawContext.hasExistingApp),
       clarificationAnswer: cleanText(rawContext.clarificationAnswer, "", 240) || undefined
     }

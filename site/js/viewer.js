@@ -1,4 +1,4 @@
-import { initialCalculatorState, initialSnakeState, normalizeCalculatorState, normalizeSnakeState } from "./interactive.js?v=11";
+import { initialCalculatorState, initialSnakeState, normalizeCalculatorState, normalizeSnakeState } from "./interactive.js?v=12";
 
 export const DESIGN_TABS = ["visual", "library", "theme"];
 
@@ -69,11 +69,12 @@ export function createLibrarySection(type, index = 0) {
       ]
     }
   };
-  return structuredClone(sections[type] || sections.cards);
+  return { id: `section-${Date.now().toString(36)}-${number}`, ...structuredClone(sections[type] || sections.cards) };
 }
 
-export function initialPreviewInteraction() {
+export function initialPreviewInteraction(revision = 0) {
   return {
+    revision,
     activeSection: "home",
     primaryDone: false,
     selectedItems: [],
@@ -82,9 +83,10 @@ export function initialPreviewInteraction() {
   };
 }
 
-export function normalizePreviewInteraction(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return initialPreviewInteraction();
+export function normalizePreviewInteraction(value, revision = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Number(value.revision || 0) !== Number(revision || 0)) return initialPreviewInteraction(revision);
   return {
+    revision,
     activeSection: typeof value.activeSection === "string" ? value.activeSection : "home",
     primaryDone: value.primaryDone === true,
     selectedItems: Array.isArray(value.selectedItems) ? value.selectedItems.filter((item) => typeof item === "string").slice(0, 100) : [],

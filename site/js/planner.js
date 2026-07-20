@@ -39,7 +39,14 @@ function buildPreview(prompt, title) {
   const reading = /阅读|读书|书籍/.test(text);
   const habit = /习惯|健康|运动|打卡/.test(text);
   const accent = travel ? "#ff6b46" : reading ? "#6a63ff" : habit ? "#33a36b" : "#246bfd";
-  return {
+  const features = travel
+    ? [{ title: "慢一点出发", detail: "不早起，也不错过城市醒来的时刻。" }, { title: "只选三站", detail: "留出足够空白，让偶遇真的发生。" }, { title: "保存灵感", detail: "把喜欢的地方变成下一次出发。" }]
+    : reading
+      ? [{ title: "安静书架", detail: "集中保存想读、在读和读完的书。" }, { title: "轻量记录", detail: "用一句话留下此刻最重要的想法。" }, { title: "阅读节奏", detail: "看见进度，但不让数字制造压力。" }]
+      : habit
+        ? [{ title: "从小开始", detail: "把目标缩小到今天可以完成的一步。" }, { title: "及时反馈", detail: "完成后马上看见连续行动的积累。" }, { title: "温和提醒", detail: "在合适的时间提醒，不打断生活。" }]
+        : [{ title: "清晰入口", detail: "最快一步进入今天最重要的任务。" }, { title: "即时状态", detail: "每次操作都有明确、可信的反馈。" }, { title: "持续积累", detail: "让零散记录逐渐形成有用的结果。" }];
+  const result = {
     appType,
     title: title || inferTitle(text),
     eyebrow: travel ? "MAKE SPACE FOR THE WEEKEND" : reading ? "A QUIET SPACE TO READ" : habit ? "SMALL STEPS, EVERY DAY" : "BUILT AROUND YOUR DAY",
@@ -60,30 +67,11 @@ function buildPreview(prompt, title) {
     visualStart: travel ? "09:30" : reading ? "CH. 04" : habit ? "DAY 01" : "START",
     visualEnd: travel ? "16:40" : reading ? "38%" : habit ? "DAY 07" : "DONE",
     visualLabel: travel ? "3 stops" : reading ? "12 pages" : habit ? "7 day streak" : "in progress",
-    features: travel
-      ? [
-          { title: "慢一点出发", detail: "不早起，也不错过城市醒来的时刻。" },
-          { title: "只选三站", detail: "留出足够空白，让偶遇真的发生。" },
-          { title: "保存灵感", detail: "把喜欢的地方变成下一次出发。" }
-        ]
-      : reading
-        ? [
-            { title: "安静书架", detail: "集中保存想读、在读和读完的书。" },
-            { title: "轻量记录", detail: "用一句话留下此刻最重要的想法。" },
-            { title: "阅读节奏", detail: "看见进度，但不让数字制造压力。" }
-          ]
-        : habit
-          ? [
-              { title: "从小开始", detail: "把目标缩小到今天可以完成的一步。" },
-              { title: "及时反馈", detail: "完成后马上看见连续行动的积累。" },
-              { title: "温和提醒", detail: "在合适的时间提醒，不打断生活。" }
-            ]
-          : [
-              { title: "清晰入口", detail: "最快一步进入今天最重要的任务。" },
-              { title: "即时状态", detail: "每次操作都有明确、可信的反馈。" },
-              { title: "持续积累", detail: "让零散记录逐渐形成有用的结果。" }
-            ]
+    features,
+    capabilities: appType === "calculator" ? ["basic-operations", "decimal", "clear", "backspace", "history"] : appType === "snake" ? ["keyboard-controls", "score", "pause", "reset"] : [],
+    sections: features.map((feature, index) => ({ id: `section-${index + 1}`, type: "cards", title: feature.title, description: feature.detail, items: [], metrics: [] }))
   };
+  return result;
 }
 
 function createPlan(prompt) {
@@ -157,6 +145,11 @@ export function createWorkspace(input, options = {}) {
     publishedAt: null,
     modelSource: "local-fallback",
     hasBuiltArtifact: false,
+    artifactRevision: 0,
+    lastKnownGood: null,
+    pendingChange: null,
+    previewVerification: null,
+    previewFeedback: [],
     intent: null,
     runtime: { status: "idle", phase: "idle", events: [], verification: null, replans: 0 },
     capabilities: input.capabilities || { teamMode: true, deepResearch: false, raceMode: false, attachments: [], connectors: [] },
@@ -164,7 +157,7 @@ export function createWorkspace(input, options = {}) {
     clarificationAnswer: null,
     quickStarts: ["Add user profiles", "Add progress tracking", "Add social sharing"],
     preview,
-    code: createCode(preview),
+    code: createDynamicCode(preview),
     plan: createPlan(prompt),
     agents: selectedAgents,
     files: createFiles(preview),
@@ -217,7 +210,8 @@ export function beginAgentRun(workspace, stage, now = new Date().toISOString()) 
     phase: stage === "build" ? "building" : "planning",
     runtime: { ...(workspace.runtime || {}), status: "running", phase: stage === "build" ? "execution" : "intent", events: [], verification: null },
     updatedAt: now,
-    published: false
+    published: false,
+    runBaseRevision: workspace.artifactRevision || 0
   };
 }
 
@@ -282,6 +276,19 @@ export function applyRuntimeResult(workspace, event, model = "deepseek-v4-flash"
   const artifact = event.artifact;
   if (!artifact) return applyRuntimeEvent(workspace, event, now);
   const updated = applyRuntimeEvent(workspace, event, now);
+  const expectedRevision = workspace.runBaseRevision ?? workspace.artifactRevision ?? 0;
+  const failed = event.status === "failed_verification" || artifact.baseRevision !== expectedRevision;
+  if (failed) {
+    const issues = event.verification?.issues || (artifact.baseRevision !== expectedRevision ? ["产物基线已变更，本次结果已拒绝"] : ["Preview 验证未通过"]);
+    return {
+      ...updated,
+      phase: "verification-failed",
+      candidateArtifact: artifact,
+      pendingChange: workspace.pendingChange,
+      previewVerification: { status: "failed", passed: false, issues, revision: workspace.artifactRevision || 0, checkedAt: now, source: "agent-runtime" },
+      messages: [...updated.messages, { id: uniqueId("msg"), role: "agent", agent: "mike", text: `本次修改未通过验证，已保留上一个可用版本：${issues.join("；")}`, time: now, model }]
+    };
+  }
   return {
     ...updated,
     phase: "ready",
@@ -290,6 +297,10 @@ export function applyRuntimeResult(workspace, event, model = "deepseek-v4-flash"
     files: filesFromArtifact(artifact),
     decisions: artifact.decisions,
     hasBuiltArtifact: true,
+    artifactRevision: artifact.nextRevision ?? expectedRevision + 1,
+    lastKnownGood: { preview: workspace.preview, code: workspace.code, files: workspace.files, revision: workspace.artifactRevision || 0 },
+    pendingChange: null,
+    candidateArtifact: null,
     modelSource: model,
     agents: updated.agents.map((agent) => ({ ...agent, status: "done", message: "已完成并同步产物" })),
     messages: [...updated.messages, { id: uniqueId("msg"), role: "agent", agent: "mike", text: artifact.assistantMessage, time: now, model }]
@@ -315,13 +326,13 @@ function createDynamicCode(preview) {
     : preview.appType === "snake"
       ? "      <SnakeGame keyboard controls score persistence />"
       : "";
-  const sections = preview.sections
+  const sections = (preview.sections || [])
     .map(
       (section) =>
         `        <Section type="${section.type}" title="${section.title}" description="${section.description || ""}" metrics={${JSON.stringify(section.metrics || [])}} items={${JSON.stringify(section.items || [])}} />`
     )
     .join("\n");
-  return `// Generated by Atoms Demo Agent Runtime\nexport default function App() {\n  return (\n    <ProductShell accent="${preview.accent}" background="${preview.background || "#fffdf9"}" heading="${preview.headingStyle || "editorial"}" template="${preview.template || "landing"}">\n      <Hero title="${preview.title}" subtitle="${preview.subtitle}" action="${preview.primaryAction || preview.button || "开始体验"}" />\n${interactive}\n${sections}\n    </ProductShell>\n  );\n}`;
+  return `// Generated by Atoms Demo Agent Runtime\nexport default function App() {\n  return (\n    <ProductShell data-theme="${preview.themeId || "custom"}" data-heading="${preview.headingStyle || "editorial"}" style={{ background: "${preview.background || "#fffdf9"}" }} accent="${preview.accent}" background="${preview.background || "#fffdf9"}" heading="${preview.headingStyle || "editorial"}" template="${preview.template || "landing"}">\n      <Hero title="${preview.title}" subtitle="${preview.subtitle}" action="${preview.primaryAction || preview.button || "开始体验"}" />\n${interactive}\n${sections}\n    </ProductShell>\n  );\n}`;
 }
 
 export function approvePlan(workspace, now = new Date().toISOString()) {
@@ -356,8 +367,9 @@ export function nextBuildStep(workspace, now = new Date().toISOString()) {
   }
   const finished = nextIndex >= agents.length;
   const actor = agents[activeIndex];
+  const locallyUpdated = finished ? applyLocalArtifactChange(workspace, now) : workspace;
   return {
-    ...workspace,
+    ...locallyUpdated,
     agents,
     phase: finished ? "ready" : "building",
     hasBuiltArtifact: workspace.hasBuiltArtifact || finished,
@@ -433,6 +445,7 @@ export function submitPrompt(workspace, prompt, now = new Date().toISOString()) 
     runtime: { status: "idle", phase: "idle", events: [], verification: null, replans: 0 },
     clarification: null,
     clarificationAnswer: null,
+    pendingChange: { prompt: text, baseRevision: workspace.artifactRevision || 0, submittedAt: now },
     agents,
     updatedAt: now,
     messages: [
@@ -441,6 +454,26 @@ export function submitPrompt(workspace, prompt, now = new Date().toISOString()) 
       { id: uniqueId("msg"), role: "agent", agent: "mike", text: "收到。我已经生成这次变更的执行计划，请先确认范围。", time: now }
     ]
   };
+}
+
+function applyLocalArtifactChange(workspace, now) {
+  const preview = { ...workspace.preview, capabilities: [...(workspace.preview.capabilities || [])], sections: [...(workspace.preview.sections || [])] };
+  const prompt = workspace.pendingChange?.prompt || workspace.prompt;
+  if (preview.appType === "calculator") {
+    if (/百分比|percent|%/i.test(prompt) && !preview.capabilities.includes("percent")) preview.capabilities.push("percent");
+    if (/正负号|正负|sign|±/i.test(prompt) && !preview.capabilities.includes("sign")) preview.capabilities.push("sign");
+  }
+  if (/暗色|深色|dark/i.test(prompt)) Object.assign(preview, { themeId: "midnight", background: "#10131a", accent: "#78a6ff" });
+  if (/绿色|森林|green/i.test(prompt)) Object.assign(preview, { themeId: "forest", background: "#f3f8f2", accent: "#2f7d4a" });
+  const changed = JSON.stringify(preview) !== JSON.stringify(workspace.preview) || !workspace.hasBuiltArtifact;
+  return changed ? {
+    ...workspace,
+    preview,
+    code: createDynamicCode(preview),
+    artifactRevision: (workspace.artifactRevision || 0) + 1,
+    lastKnownGood: { preview: workspace.preview, code: workspace.code, files: workspace.files, revision: workspace.artifactRevision || 0 },
+    pendingChange: null
+  } : workspace;
 }
 
 export function changeMode(workspace, mode, now = new Date().toISOString()) {

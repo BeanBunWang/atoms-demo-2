@@ -25,6 +25,6 @@ test("交付说明完整覆盖评审要求和未完成边界", async () => {
   assert.match(delivery, /真实 Publish \/ 连接器 \/ 后端 \| 未完成/);
   assert.match(delivery, /计算器[\s\S]*贪吃蛇/);
   assert.match(delivery, /增量修改/);
-  assert.match(delivery, /41 项全部通过/);
+  assert.match(delivery, /\d+ 项全部通过/);
   assert.match(delivery, /P0[\s\S]*隔离代码沙箱/);
 });

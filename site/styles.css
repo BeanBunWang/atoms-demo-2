@@ -315,6 +315,10 @@ button:disabled { cursor: not-allowed; opacity: .48; }
 
 .viewer-panel { display: flex; min-width: 0; min-height: 0; overflow: hidden; flex-direction: column; }
 .viewer-toolbar { display: flex; height: 48px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+.preview-health { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 32px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: #f7f8fa; color: #68707d; font-size: 11px; }
+.preview-health[data-status="passed"] { background: #edf8f1; color: #277447; }
+.preview-health[data-status="failed"] { background: #fff2ef; color: #a13d2f; }
+.preview-health button { border: 1px solid currentColor; border-radius: 7px; background: transparent; color: inherit; padding: 4px 8px; font: inherit; font-weight: 700; cursor: pointer; }
 .segmented, .device-switcher { display: flex; align-items: center; padding: 2px; border-radius: 7px; background: var(--surface-muted); }
 .segmented button, .device-switcher button { height: 25px; padding: 0 10px; border: 0; border-radius: 5px; background: transparent; cursor: pointer; color: var(--text-soft); font-size: 9px; }
 .segmented button.active, .device-switcher button.active { background: white; color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.09); }

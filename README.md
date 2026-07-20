@@ -40,6 +40,8 @@ python3 -m http.server 4173 -d site
 - Design 的 Visual Editor 可按 Hero/区块编辑内容与强调色，Library 可添加受控组件，Theme 可应用预置主题；结果同步到 Preview、Code 和本地工作区
 - 计算器支持四则运算、百分比、正负号和历史；贪吃蛇支持方向、开始/暂停、碰撞和计分；通用应用的导航、CTA、列表和头像菜单也有真实反馈
 - 同一会话可继续提出修改；每轮重新识别意图和计划，同时保留已有应用类型、主题与产物
+- 增量修改使用 `baseRevision -> patch -> verify -> commit`；过期或验证失败的候选产物不会覆盖上一个可用版本
+- Preview 可手动验证 schema、Code 同步和实际 DOM；失败项可通过 `Fix with Agent` 回灌修复链路
 - 支持附件上下文、本地多项目保存、导出、分享和发布状态
 - Cloudflare Worker 提供同源校验、32 KB 上限、上下文白名单和每 IP 限流
 

@@ -59,6 +59,7 @@ test("Library 与 Theme 修改会完整同步到生成代码", () => {
 
 test("刷新使用确定性的预览交互初始状态", () => {
   assert.deepEqual(initialPreviewInteraction(), {
+    revision: 0,
     activeSection: "home",
     primaryDone: false,
     selectedItems: [],
@@ -67,6 +68,7 @@ test("刷新使用确定性的预览交互初始状态", () => {
   });
   assert.deepEqual(normalizePreviewInteraction("broken"), initialPreviewInteraction());
   assert.deepEqual(normalizePreviewInteraction({ activeSection: 4, primaryDone: "yes", selectedItems: ["0:0", 2] }), {
+    revision: 0,
     activeSection: "home",
     primaryDone: false,
     selectedItems: ["0:0"],
@@ -110,7 +112,10 @@ test("App Viewer 可见按钮均连接到明确命令", async () => {
   assert.match(app, /elements\.themePresets\.addEventListener\("click"/);
   assert.match(app, /data-calculator-key/);
   assert.match(app, /data-snake-action/);
-  assert.match(app, /state\.previewInteractions\[activeWorkspace\(\)\.id\] = initialPreviewInteraction\(\)/);
+  assert.match(app, /state\.previewInteractions\[activeWorkspace\(\)\.id\] = initialPreviewInteraction\(activeWorkspace\(\)\.artifactRevision \|\| 0\)/);
+  assert.match(html, /id="verify-preview-button"/);
+  assert.match(html, /id="fix-preview-button"/);
+  assert.doesNotMatch(app.match(/\$\("#refresh-button"\)[\s\S]*?\n\}\);/)?.[0] || "", /initialPreviewInteraction/);
   assert.match(app, /url\.searchParams\.set\("preview", activeWorkspace\(\)\.id\)/);
   assert.doesNotMatch(app, /standalonePreview/);
   assert.match(app, /window\.open\(url, "_blank", "noopener,noreferrer"\)/);

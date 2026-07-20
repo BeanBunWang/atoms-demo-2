@@ -13,8 +13,8 @@ import {
   publishWorkspace,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=11";
-import { loadState, saveState } from "./storage.js?v=11";
+} from "./planner.js?v=12";
+import { loadState, saveState } from "./storage.js?v=12";
 import {
   COMPONENT_LIBRARY,
   THEME_PRESETS,
@@ -23,8 +23,9 @@ import {
   normalizeDesignTab,
   normalizePreviewInteraction,
   themePatch
-} from "./viewer.js?v=11";
-import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=11";
+} from "./viewer.js?v=12";
+import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=12";
+import { buildPreviewFixPrompt, recordPreviewVerification } from "./preview-loop.js?v=12";
 
 let state = loadState();
 const previewOnlyWorkspaceId = new URLSearchParams(location.search).get("preview");
@@ -97,6 +98,9 @@ const elements = {
   confirmPublishButton: $("#confirm-publish-button"),
   toast: $("#toast")
 };
+elements.previewHealth = $("#preview-health");
+elements.previewHealthLabel = $("#preview-health-label");
+elements.fixPreviewButton = $("#fix-preview-button");
 elements.capabilityMenu = $("#capability-menu");
 elements.attachmentInput = $("#attachment-input");
 elements.attachmentSummary = $("#attachment-summary");
@@ -133,7 +137,7 @@ function showToast(message) {
 
 function phaseLabel(workspace) {
   if (workspace.published) return "Published";
-  return { planning: "Understanding", clarification: "Needs input", "plan-review": "Plan review", building: "Running", ready: "Ready" }[workspace.phase] || "Draft";
+  return { planning: "Understanding", clarification: "Needs input", "plan-review": "Plan review", building: "Running", ready: "Ready", "verification-failed": "Preview failed" }[workspace.phase] || "Draft";
 }
 
 function renderProjects() {
@@ -224,13 +228,15 @@ function previewSectionsFor(preview) {
 function currentPreviewInteraction() {
   if (!state.previewInteractions || typeof state.previewInteractions !== "object" || Array.isArray(state.previewInteractions)) state.previewInteractions = {};
   const workspaceId = activeWorkspace().id;
-  state.previewInteractions[workspaceId] = normalizePreviewInteraction(state.previewInteractions[workspaceId]);
+  state.previewInteractions[workspaceId] = normalizePreviewInteraction(state.previewInteractions[workspaceId], activeWorkspace().artifactRevision || 0);
   return state.previewInteractions[workspaceId];
 }
 
-function renderCalculatorWidget(interaction) {
+function renderCalculatorWidget(preview, interaction) {
   const calculator = interaction.calculator;
-  const keys = CALCULATOR_KEYS.map((key) => {
+  const capabilities = new Set(preview.capabilities || []);
+  const visibleKeys = CALCULATOR_KEYS.filter((key) => key !== "%" || capabilities.has("percent")).filter((key) => key !== "±" || capabilities.has("sign"));
+  const keys = visibleKeys.map((key) => {
     const kind = ["+", "−", "×", "÷", "="].includes(key) ? "operator" : ["C", "±", "%", "⌫"].includes(key) ? "utility" : "number";
     return `<button type="button" class="calculator-key ${kind} ${key === "0" ? "wide" : ""}" data-calculator-key="${escapeHTML(key)}">${escapeHTML(key)}</button>`;
   }).join("");
@@ -275,7 +281,7 @@ function renderSnakeWidget(interaction) {
 }
 
 function renderInteractiveWidget(preview, interaction) {
-  if (preview.appType === "calculator") return renderCalculatorWidget(interaction);
+  if (preview.appType === "calculator") return renderCalculatorWidget(preview, interaction);
   if (preview.appType === "snake") return renderSnakeWidget(interaction);
   return "";
 }
@@ -405,6 +411,33 @@ function renderPreview(workspace) {
   renderDesignTools(workspace);
   syncViewerChrome();
   syncSnakeTimer();
+  renderPreviewHealth(workspace);
+}
+
+function renderPreviewHealth(workspace) {
+  const verification = workspace.previewVerification;
+  const status = verification?.status || "idle";
+  elements.previewHealth.dataset.status = status;
+  elements.previewHealthLabel.textContent = status === "passed"
+    ? `Preview verified · revision ${verification.revision}`
+    : status === "failed"
+      ? `Preview failed · ${(verification.issues || []).join("；")}`
+      : "Preview 尚未验证";
+  elements.fixPreviewButton.hidden = status !== "failed";
+}
+
+function verifyAndPersistPreview(source = "manual") {
+  const workspace = activeWorkspace();
+  const rendered = {
+    checked: true,
+    title: elements.previewTitle.textContent,
+    sectionCount: elements.previewSections.querySelectorAll(":scope > .preview-module").length,
+    appType: elements.generatedApp.dataset.appType
+  };
+  const updated = recordPreviewVerification(workspace, rendered, source);
+  replaceWorkspace(updated);
+  renderPreviewHealth(updated);
+  return updated.previewVerification;
 }
 
 function renderPreviewSection(section, sectionIndex) {
@@ -540,8 +573,8 @@ async function runLiveAgent(workspace, stage) {
   render();
   try {
     const context = stage === "build"
-      ? { intent: started.intent, plan: started.runtimePlan, preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.hasBuiltArtifact) }
-      : { preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.hasBuiltArtifact) };
+      ? { intent: started.intent, plan: started.runtimePlan, preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.hasBuiltArtifact), artifactRevision: started.artifactRevision || 0, previewVerification: started.previewVerification, previewFeedback: started.previewFeedback }
+      : { preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.hasBuiltArtifact), artifactRevision: started.artifactRevision || 0, previewVerification: started.previewVerification, previewFeedback: started.previewFeedback };
     const response = await fetch("./api/agent/run", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
@@ -580,12 +613,13 @@ async function runLiveAgent(workspace, stage) {
     }
     if (failed) throw failed;
     const current = state.workspaces.find((item) => item.id === workspace.id);
+    if (stage === "build" && current?.phase === "ready" && state.activeWorkspaceId === workspace.id) verifyAndPersistPreview("agent-build");
     showToast(current?.phase === "clarification" ? "Alex 需要你补充一个关键选择" : stage === "plan" ? "意图识别与动态计划已完成" : "Agent runtime 已完成构建与验证");
     return true;
   } catch (error) {
     const current = state.workspaces.find((item) => item.id === workspace.id);
     if (current) {
-      replaceWorkspace({ ...current, phase: stage === "build" ? "plan-review" : "draft", runtime: { ...current.runtime, status: "failed" }, logs: [...current.logs, { level: "error", text: error.message, time: "now" }] });
+      replaceWorkspace({ ...current, phase: "plan-review", runtime: { ...current.runtime, status: "failed" }, logs: [...current.logs, { level: "error", text: error.message, time: "now" }] });
       render();
     }
     showToast(`Agent runtime 失败：${error.message}`);
@@ -610,6 +644,7 @@ function startBuildLoop(workspaceId = activeWorkspace().id) {
     if (state.activeWorkspaceId === workspaceId) render();
     if (next.phase === "ready") {
       clearInterval(buildTimer);
+      if (state.activeWorkspaceId === workspaceId) verifyAndPersistPreview("local-build");
       if (state.activeWorkspaceId === workspaceId) showToast("Build complete · 应用预览已更新");
     }
   }, 650);
@@ -652,7 +687,7 @@ $("#composer-form").addEventListener("submit", async (event) => {
   replaceWorkspace(updated);
   elements.promptInput.value = "";
   render();
-  if (!(await runLiveAgent(updated, "plan")) && !(await hydratePlanWithModel(updated, updated.prompt))) showToast("Mike 已生成本地变更计划");
+  if (!(await runLiveAgent(updated, "plan"))) showToast("Mike 已生成本地变更计划");
 });
 
 elements.messageStream.addEventListener("click", async (event) => {
@@ -712,7 +747,7 @@ elements.newProjectForm.addEventListener("submit", async (event) => {
   persist();
   elements.newProjectDialog.close();
   render();
-  if (!(await runLiveAgent(workspace, "plan")) && !(await hydratePlanWithModel(workspace, workspace.prompt))) showToast("计划已生成，请确认后开始构建");
+  if (!(await runLiveAgent(workspace, "plan"))) showToast("计划已生成，请确认后开始构建");
 });
 
 $$('[data-close-dialog]').forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
@@ -782,6 +817,7 @@ elements.componentLibrary.addEventListener("click", (event) => {
   state.activePanel = "preview";
   persist();
   render();
+  verifyAndPersistPreview("visual-editor");
   requestAnimationFrame(() => scrollPreviewTo(String(sections.length)));
   showToast("组件已加入 Preview，并同步到 Code");
 });
@@ -791,6 +827,7 @@ elements.themePresets.addEventListener("click", (event) => {
   if (!themeId) return;
   replaceWorkspace(updatePreview(activeWorkspace(), themePatch(themeId)));
   render();
+  verifyAndPersistPreview("theme-editor");
   showToast("主题已应用，并同步到工作区与 Code");
 });
 
@@ -812,6 +849,7 @@ elements.generatedApp.addEventListener("click", (event) => {
   if (calculatorKey) {
     const interaction = currentPreviewInteraction();
     interaction.calculator = reduceCalculator(interaction.calculator, calculatorKey);
+    activeWorkspace().previewFeedback = [...(activeWorkspace().previewFeedback || []), { type: "preview.interaction", source: "calculator", revision: activeWorkspace().artifactRevision || 0, action: calculatorKey, at: new Date().toISOString(), issues: [] }].slice(-12);
     persist();
     renderPreview(activeWorkspace());
     return;
@@ -821,6 +859,7 @@ elements.generatedApp.addEventListener("click", (event) => {
   if (snakeAction) {
     const interaction = currentPreviewInteraction();
     interaction.snake = reduceSnake(interaction.snake, snakeAction);
+    activeWorkspace().previewFeedback = [...(activeWorkspace().previewFeedback || []), { type: "preview.interaction", source: "snake", revision: activeWorkspace().artifactRevision || 0, action: snakeAction, at: new Date().toISOString(), issues: [] }].slice(-12);
     persist();
     renderPreview(activeWorkspace());
     requestAnimationFrame(() => elements.generatedApp.querySelector(".snake-widget")?.focus());
@@ -843,7 +882,7 @@ elements.generatedApp.addEventListener("click", (event) => {
     return;
   }
   if (command === "reset") {
-    state.previewInteractions[activeWorkspace().id] = initialPreviewInteraction();
+    state.previewInteractions[activeWorkspace().id] = initialPreviewInteraction(activeWorkspace().artifactRevision || 0);
     persist();
     renderPreview(activeWorkspace());
     elements.designPreview.scrollTo({ top: 0, behavior: "smooth" });
@@ -902,6 +941,7 @@ elements.designForm.addEventListener("submit", (event) => {
   replaceWorkspace(updatedWorkspace);
   elements.designDialog.close();
   render();
+  verifyAndPersistPreview("visual-editor");
   showToast("可视编辑已同步到 Preview 与 Code");
 });
 
@@ -957,7 +997,6 @@ $$('[data-nav]').forEach((button) => button.addEventListener("click", () => {
 }));
 $("#export-button").addEventListener("click", exportWorkspace);
 $("#refresh-button").addEventListener("click", () => {
-  state.previewInteractions[activeWorkspace().id] = initialPreviewInteraction();
   state.activeDesignTab = "visual";
   state.activePanel = "preview";
   persist();
@@ -965,6 +1004,15 @@ $("#refresh-button").addEventListener("click", () => {
   elements.designPreview.scrollTo({ top: 0, behavior: "smooth" });
   elements.appFrame.animate([{ opacity: .35, transform: "scale(.995)" }, { opacity: 1, transform: "scale(1)" }], { duration: 280 });
   showToast("Preview 已从当前工作区状态重新渲染");
+});
+$("#verify-preview-button").addEventListener("click", () => {
+  const result = verifyAndPersistPreview("manual");
+  showToast(result.passed ? "Preview 验证通过" : "Preview 验证失败，可交给 Agent 修复");
+});
+elements.fixPreviewButton.addEventListener("click", () => {
+  elements.promptInput.value = buildPreviewFixPrompt(activeWorkspace().previewVerification);
+  syncComposerState();
+  $("#composer-form").requestSubmit();
 });
 $("#open-preview-button").addEventListener("click", () => {
   const url = new URL(location.href);

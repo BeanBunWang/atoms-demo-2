@@ -42,6 +42,7 @@ test("审批计划后才允许智能体进入构建", () => {
   while (workspace.phase === "building") workspace = nextBuildStep(workspace, "2026-01-01T00:00:02.000Z");
   assert.equal(workspace.phase, "ready");
   assert.equal(buildProgress(workspace), 100);
+  assert.equal(workspace.artifactRevision, 1);
 });
 
 test("追加指令会生成新的计划审批轮次", () => {
@@ -60,6 +61,20 @@ test("追加指令会生成新的计划审批轮次", () => {
   assert.equal(updated.runtimePlan, null);
   assert.deepEqual(updated.runtime.events, []);
   assert.equal(updated.messages.at(-1).role, "agent");
+  assert.equal(updated.pendingChange.baseRevision, 0);
+});
+
+test("本地降级链路会真正应用计算器增量能力", () => {
+  let workspace = createWorkspace({ title: "计算器", prompt: "做一个计算器", mode: "auto" });
+  workspace = approvePlan(workspace);
+  while (workspace.phase === "building") workspace = nextBuildStep(workspace);
+  assert.equal(workspace.preview.capabilities.includes("percent"), false);
+  workspace = submitPrompt(workspace, "增加百分比和正负号功能");
+  workspace = approvePlan(workspace);
+  while (workspace.phase === "building") workspace = nextBuildStep(workspace);
+  assert.equal(workspace.preview.capabilities.includes("percent"), true);
+  assert.equal(workspace.preview.capabilities.includes("sign"), true);
+  assert.equal(workspace.artifactRevision, 2);
 });
 
 test("澄清答案会回到同一会话并恢复规划", () => {

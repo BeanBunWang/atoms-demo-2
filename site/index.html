@@ -9,7 +9,7 @@
     <link rel="icon" href="./assets/atoms-mark.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="./favicon.ico" type="image/png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=11" />
+    <link rel="stylesheet" href="./styles.css?v=12" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -100,7 +100,8 @@
             <header class="viewer-toolbar">
               <div class="app-viewer-pill">▣ App Viewer</div>
               <div class="viewer-tools">
-                <button class="tool-button" id="refresh-button" type="button" aria-label="刷新并重置预览状态" title="刷新预览">↻</button>
+                <button class="tool-button" id="verify-preview-button" type="button" aria-label="验证当前预览" title="验证 Preview">Verify</button>
+                <button class="tool-button" id="refresh-button" type="button" aria-label="重新渲染预览" title="重新渲染预览">↻</button>
                 <div class="device-switcher" aria-label="预览尺寸">
                   <button type="button" data-device="desktop" class="active" title="桌面" aria-label="桌面预览">▱</button>
                   <button type="button" data-device="tablet" title="平板" aria-label="平板预览">▯</button>
@@ -114,6 +115,7 @@
             </header>
 
             <div class="viewer-canvas" id="viewer-canvas">
+              <div class="preview-health" id="preview-health" data-status="idle"><span id="preview-health-label">Preview 尚未验证</span><button id="fix-preview-button" type="button" hidden>Fix with Agent</button></div>
               <div class="design-shell">
                 <aside class="design-sidebar" aria-label="设计工具">
                   <strong><span>✣</span> Design</strong>
@@ -195,6 +197,6 @@
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="./js/app.js?v=11"></script>
+    <script type="module" src="./js/app.js?v=12"></script>
   </body>
 </html>
