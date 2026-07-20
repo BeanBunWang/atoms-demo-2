@@ -46,10 +46,19 @@ test("审批计划后才允许智能体进入构建", () => {
 
 test("追加指令会生成新的计划审批轮次", () => {
   const ready = createWorkspace({ title: "A", prompt: "做一个旅行应用", mode: "team" });
+  ready.hasBuiltArtifact = true;
+  ready.intent = { type: "build_app" };
+  ready.runtimePlan = { title: "旧计划", steps: [] };
+  ready.runtime = { status: "ready", events: [{ type: "run.completed" }] };
+  const originalPreview = ready.preview;
   const updated = submitPrompt(ready, "增加收藏和深色按钮", "2026-01-01T00:00:03.000Z");
 
   assert.equal(updated.phase, "plan-review");
-  assert.match(updated.preview.subtitle, /收藏/);
+  assert.equal(updated.preview, originalPreview);
+  assert.equal(updated.hasBuiltArtifact, true);
+  assert.equal(updated.intent, null);
+  assert.equal(updated.runtimePlan, null);
+  assert.deepEqual(updated.runtime.events, []);
   assert.equal(updated.messages.at(-1).role, "agent");
 });
 

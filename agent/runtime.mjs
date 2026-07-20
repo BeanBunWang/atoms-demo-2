@@ -47,14 +47,14 @@ export async function runAgentRuntime({ stage, prompt, context = {}, capabilitie
     send("tool.completed", { phase: "execution", agent: step.agent, tool: step.tool, stepId: step.id, output, message: output.summary });
   }
   send("artifact.generating", { phase: "execution", agent: "alex", tool: "compose_app", message: "按话题生成页面结构、真实文案与示例数据" });
-  let artifact = normalizeArtifact(await complete(artifactPrompt({ prompt, intent, plan, capabilities, previousPreview: context.preview, toolOutputs })), intent);
+  let artifact = normalizeArtifact(await complete(artifactPrompt({ prompt, intent, plan, capabilities, previousPreview: context.preview, toolOutputs })), intent, { previousPreview: context.preview });
   send("artifact.created", { phase: "execution", agent: "alex", artifact, message: `已生成 ${artifact.preview.template} 布局和 ${artifact.preview.sections.length} 个话题模块` });
 
   send("verification.started", { phase: "verification", agent: "mike", tool: "validate_artifact", message: "检查结构、话题关联、布局差异和交付文件" });
   let verification = validateArtifact(artifact, intent);
   if (!verification.passed) {
     send("replan.created", { phase: "replanning", agent: "mike", issues: verification.issues, message: `发现 ${verification.issues.length} 个问题，触发一次修复` });
-    artifact = normalizeArtifact(await complete(repairPrompt({ prompt, intent, plan, artifact, issues: verification.issues })), intent);
+    artifact = normalizeArtifact(await complete(repairPrompt({ prompt, intent, plan, artifact, issues: verification.issues })), intent, { previousPreview: context.preview });
     verification = validateArtifact(artifact, intent);
   }
   send("verification.completed", { phase: "verification", agent: "mike", verification, message: verification.passed ? "全部验证通过" : `仍有 ${verification.issues.length} 个非阻塞问题` });

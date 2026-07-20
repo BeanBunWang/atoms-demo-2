@@ -49,7 +49,7 @@ export function inferIntent(prompt, context = {}) {
           : context?.hasExistingApp || /修改|增加|调整|优化|改成/.test(text)
             ? "modify_app"
             : "build_app";
-  const domain = /宠物/.test(text) ? "宠物服务" : /销售|CRM|客户/.test(text) ? "销售管理" : /阅读|书/.test(text) ? "阅读" : /旅行|路线|景点/.test(text) ? "旅行" : /健康|运动|习惯/.test(text) ? "健康习惯" : /社区|社交/.test(text) ? "社区" : "通用产品";
+  const domain = /计算器|算术|加减乘除/.test(text) ? "计算器" : /贪吃蛇|snake|小游戏|游戏/.test(text) ? "休闲游戏" : /宠物/.test(text) ? "宠物服务" : /销售|CRM|客户/.test(text) ? "销售管理" : /阅读|书/.test(text) ? "阅读" : /旅行|路线|景点/.test(text) ? "旅行" : /健康|运动|习惯/.test(text) ? "健康习惯" : /社区|社交/.test(text) ? "社区" : "通用产品";
   const needsClarification = type === "build_app" && text.length < 14 && !/登录|支付|数据库|记录|提醒|分享|搜索|管理|看板|路线|课程|商城/.test(text);
   return {
     type,
@@ -57,7 +57,7 @@ export function inferIntent(prompt, context = {}) {
     domain,
     audience: "目标场景中的实际使用者",
     entities: list(text.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,10}/g), [domain], 5),
-    requestedFeatures: list(text.split(/[，、；;。]/).filter((part) => /收藏|记录|生成|管理|分析|分享|提醒|搜索|筛选|预约|发布|上传/.test(part)), ["完成核心任务", "查看结果反馈"], 6),
+    requestedFeatures: list(text.split(/[，、；;。]/).filter((part) => /收藏|记录|生成|管理|分析|分享|提醒|搜索|筛选|预约|发布|上传|计算|加减乘除|百分比|正负号|开始|暂停|重置|计分|方向|键盘/.test(part)), ["完成核心任务", "查看结果反馈"], 6),
     constraints: list(context?.capabilities?.attachments?.map((item) => `参考附件：${item.name}`), [], 4),
     complexity: text.length > 120 || /登录|支付|数据库|实时|协作/.test(text) ? "high" : text.length > 45 ? "medium" : "low",
     confidence: 0.68,

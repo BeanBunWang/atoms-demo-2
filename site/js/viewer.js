@@ -1,3 +1,5 @@
+import { initialCalculatorState, initialSnakeState, normalizeCalculatorState, normalizeSnakeState } from "./interactive.js?v=11";
+
 export const DESIGN_TABS = ["visual", "library", "theme"];
 
 export const THEME_PRESETS = [
@@ -71,7 +73,13 @@ export function createLibrarySection(type, index = 0) {
 }
 
 export function initialPreviewInteraction() {
-  return { activeSection: "home", primaryDone: false, selectedItems: [] };
+  return {
+    activeSection: "home",
+    primaryDone: false,
+    selectedItems: [],
+    calculator: initialCalculatorState(),
+    snake: initialSnakeState()
+  };
 }
 
 export function normalizePreviewInteraction(value) {
@@ -79,6 +87,8 @@ export function normalizePreviewInteraction(value) {
   return {
     activeSection: typeof value.activeSection === "string" ? value.activeSection : "home",
     primaryDone: value.primaryDone === true,
-    selectedItems: Array.isArray(value.selectedItems) ? value.selectedItems.filter((item) => typeof item === "string").slice(0, 100) : []
+    selectedItems: Array.isArray(value.selectedItems) ? value.selectedItems.filter((item) => typeof item === "string").slice(0, 100) : [],
+    calculator: normalizeCalculatorState(value.calculator),
+    snake: normalizeSnakeState(value.snake)
   };
 }

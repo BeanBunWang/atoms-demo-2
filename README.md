@@ -35,14 +35,15 @@ python3 -m http.server 4173 -d site
 - 仅在关键方向缺失时展示结构化澄清，回答后在同一会话继续
 - Mike 根据意图选择必要专家和受控工具，审批前不会执行
 - 对话内展示 Working Process、Agent、tool call、tool output、验证与重规划
-- 根据话题生成 dashboard / tracker / catalog / planner / community / landing 页面
+- 根据话题生成 dashboard / tracker / catalog / planner / community / landing 页面；计算器与贪吃蛇具备专属可操作运行时
 - App Viewer 提供可操作的验收工作台：真实刷新、桌面/平板/手机尺寸、Preview/Code、Console/Files 和完整独立预览
 - Design 的 Visual Editor 可按 Hero/区块编辑内容与强调色，Library 可添加受控组件，Theme 可应用预置主题；结果同步到 Preview、Code 和本地工作区
-- 生成应用内的导航、主 CTA、列表项目和头像菜单均可点击，并产生页内定位、选择状态或运行信息反馈
+- 计算器支持四则运算、百分比、正负号和历史；贪吃蛇支持方向、开始/暂停、碰撞和计分；通用应用的导航、CTA、列表和头像菜单也有真实反馈
+- 同一会话可继续提出修改；每轮重新识别意图和计划，同时保留已有应用类型、主题与产物
 - 支持附件上下文、本地多项目保存、导出、分享和发布状态
 - Cloudflare Worker 提供同源校验、32 KB 上限、上下文白名单和每 IP 限流
 
-> App Viewer 交互运行在安全 UI schema 与本地工作区状态之上，不执行模型生成的任意代码；Publish 仍是演示状态，不会创建真实云资源。
+> App Viewer 与完整预览复用安全 UI schema 和领域交互 runtime，不执行模型生成的任意代码；Publish 仍是演示状态，不会创建真实云资源。
 
 ## 验证
 

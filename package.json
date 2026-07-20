@@ -8,6 +8,6 @@
     "deploy:cloudflare": "npx wrangler@4.36.0 deploy",
     "dev:cloudflare": "npx wrangler@4.36.0 dev",
     "test": "node --test",
-    "check": "node --check server.mjs && node --check worker.mjs && node --check agent/intent.mjs && node --check agent/model.mjs && node --check agent/prompts.mjs && node --check agent/tools.mjs && node --check agent/runtime.mjs && node --check site/js/app.js && node --check site/js/planner.js && node --check site/js/storage.js && node --check site/js/viewer.js && node --check site/sw.js"
+    "check": "node --check server.mjs && node --check worker.mjs && node --check agent/intent.mjs && node --check agent/model.mjs && node --check agent/prompts.mjs && node --check agent/tools.mjs && node --check agent/runtime.mjs && node --check site/js/app.js && node --check site/js/interactive.js && node --check site/js/planner.js && node --check site/js/storage.js && node --check site/js/viewer.js && node --check site/sw.js"
   }
 }

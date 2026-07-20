@@ -55,6 +55,47 @@ test("模型对象字段不会泄漏为 object Object 文案", () => {
   assert.doesNotMatch(JSON.stringify(artifact), /\[object Object\]/);
 });
 
+test("计算器和贪吃蛇产物会保留受控交互类型", () => {
+  const calculatorIntent = inferIntent("做一个可以点击计算加减乘除的计算器");
+  const calculator = normalizeArtifact({ preview: {
+    title: "计算器", appType: "generic", template: "dashboard",
+    sections: [
+      { type: "stats", title: "显示器" },
+      { type: "cards", title: "数字按键" },
+      { type: "list", title: "运算历史" }
+    ]
+  }, files: ["src/App.jsx"] }, calculatorIntent);
+  assert.equal(calculator.preview.appType, "calculator");
+  assert.equal(validateArtifact(calculator, calculatorIntent).passed, true);
+
+  const snakeIntent = inferIntent("做一个键盘可玩的贪吃蛇游戏");
+  const snake = normalizeArtifact({ preview: {
+    title: "贪吃蛇", appType: "snake", template: "landing",
+    sections: [
+      { type: "stats", title: "当前得分" },
+      { type: "cards", title: "方向控制" },
+      { type: "progress", title: "最高分" }
+    ]
+  }, files: ["src/App.jsx"] }, snakeIntent);
+  assert.equal(snake.preview.appType, "snake");
+  assert.equal(validateArtifact(snake, snakeIntent).passed, true);
+});
+
+test("增量修改默认保留已有应用交互类型", () => {
+  const intent = normalizeIntent({ type: "modify_app", goal: "增加百分比和正负号功能", domain: "计算器" }, "增加百分比和正负号功能", { hasExistingApp: true });
+  const artifact = normalizeArtifact({ preview: {
+    title: "专业计算器", template: "dashboard",
+    sections: [
+      { type: "stats", title: "结果" },
+      { type: "cards", title: "新增按键" },
+      { type: "list", title: "历史" }
+    ]
+  }, files: ["src/App.jsx"] }, intent, { previousPreview: { appType: "calculator", headingStyle: "studio", themeId: "studio" } });
+  assert.equal(artifact.preview.appType, "calculator");
+  assert.equal(artifact.preview.headingStyle, "studio");
+  assert.equal(artifact.preview.themeId, "studio");
+});
+
 test("runtime 先计划审批，再执行工具、生成产物并验证", async () => {
   const events = [];
   const responses = [

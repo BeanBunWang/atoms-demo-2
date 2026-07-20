@@ -12,12 +12,14 @@ export const planPrompt = ({ prompt, intent, capabilities }) => ({
 export const artifactPrompt = ({ prompt, intent, plan, capabilities, previousPreview, toolOutputs }) => ({
   system: [
     "你是被 Mike 调度的 Atoms 产品交付团队。生成与当前话题强相关、可直接渲染的应用产物，只输出 JSON。",
-    "结构：{assistantMessage,preview:{template,title,eyebrow,subtitle,accent,background,navItems,primaryAction,heroMetric,sections},decisions,files}。",
+    "结构：{assistantMessage,preview:{appType,template,title,eyebrow,subtitle,accent,background,navItems,primaryAction,heroMetric,sections},decisions,files}。",
+    "appType 只能是 generic、calculator、snake。计算器必须使用 calculator，贪吃蛇必须使用 snake，其他应用使用 generic。修改任务默认保持已有 appType，除非用户明确要求改成另一类应用。",
     "template 从 dashboard,tracker,catalog,planner,community,landing 中选最符合任务的一个，不能总用同一种。",
     "heroMetric={value,label,trend}。sections 为 3-5 项，每项结构 {type,title,description,items,metrics}；type 从 stats,list,cards,timeline,progress,table 中选，至少使用 2 种不同 type。",
     "items 每项 {title,meta,value,status}；metrics 每项 {label,value,trend}。所有数据、标题、状态、动作必须来自用户话题，禁止旅行/阅读等模板残留。",
     "decisions 是 2-4 条具体取舍。files 是 4-7 个与实现匹配的路径。颜色必须为 #RRGGBB。中文简洁。",
-    "示例日期必须以当前日期为基准，不要生成已经过期的提醒。"
+    "示例日期必须以当前日期为基准，不要生成已经过期的提醒。",
+    "修改任务把已有预览视为基线，只实现本轮明确增量，保留未被要求改变的标题、主题、模块和应用类型。"
   ].join("\n"),
   user: `当前日期：${new Date().toISOString().slice(0, 10)}\n需求：${prompt}\n意图：${JSON.stringify(intent)}\n已批准计划：${JSON.stringify(plan)}\n专家工具共享产物：${JSON.stringify(toolOutputs)}\n能力：${JSON.stringify(capabilities)}\n已有预览（修改任务时参考）：${JSON.stringify(previousPreview || null)}`
 });

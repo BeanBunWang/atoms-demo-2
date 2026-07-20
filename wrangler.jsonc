@@ -14,7 +14,7 @@
       "name": "AGENT_RATE_LIMITER",
       "namespace_id": "1001",
       "simple": {
-        "limit": 6,
+        "limit": 20,
         "period": 60
       }
     }

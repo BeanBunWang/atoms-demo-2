@@ -1,12 +1,13 @@
-const CACHE_NAME = "atoms-demo-v9";
+const CACHE_NAME = "atoms-demo-v11";
 const ASSETS = [
   "./",
   "./index.html",
-  "./styles.css?v=9",
-  "./js/app.js?v=8",
-  "./js/planner.js?v=8",
-  "./js/storage.js?v=8",
-  "./js/viewer.js?v=8",
+  "./styles.css?v=11",
+  "./js/app.js?v=11",
+  "./js/planner.js?v=11",
+  "./js/storage.js?v=11",
+  "./js/viewer.js?v=11",
+  "./js/interactive.js?v=11",
   "./assets/atoms-mark.svg",
   "./assets/agents/mike.webp",
   "./assets/agents/emma.webp",

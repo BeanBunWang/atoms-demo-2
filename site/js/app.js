@@ -13,8 +13,8 @@ import {
   publishWorkspace,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=8";
-import { loadState, saveState } from "./storage.js?v=8";
+} from "./planner.js?v=11";
+import { loadState, saveState } from "./storage.js?v=11";
 import {
   COMPONENT_LIBRARY,
   THEME_PRESETS,
@@ -23,10 +23,17 @@ import {
   normalizeDesignTab,
   normalizePreviewInteraction,
   themePatch
-} from "./viewer.js?v=8";
+} from "./viewer.js?v=11";
+import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=11";
 
 let state = loadState();
+const previewOnlyWorkspaceId = new URLSearchParams(location.search).get("preview");
+if (previewOnlyWorkspaceId && state.workspaces.some((workspace) => workspace.id === previewOnlyWorkspaceId)) {
+  state.activeWorkspaceId = previewOnlyWorkspaceId;
+  document.body.classList.add("standalone-preview");
+}
 let buildTimer = null;
+let snakeTimer = null;
 let toastTimer = null;
 let planningActive = false;
 let modelCapability = { realModel: false, model: "local-fallback", checked: false };
@@ -221,6 +228,76 @@ function currentPreviewInteraction() {
   return state.previewInteractions[workspaceId];
 }
 
+function renderCalculatorWidget(interaction) {
+  const calculator = interaction.calculator;
+  const keys = CALCULATOR_KEYS.map((key) => {
+    const kind = ["+", "−", "×", "÷", "="].includes(key) ? "operator" : ["C", "±", "%", "⌫"].includes(key) ? "utility" : "number";
+    return `<button type="button" class="calculator-key ${kind} ${key === "0" ? "wide" : ""}" data-calculator-key="${escapeHTML(key)}">${escapeHTML(key)}</button>`;
+  }).join("");
+  const history = calculator.history.length
+    ? calculator.history.map((item) => `<li>${escapeHTML(item)}</li>`).join("")
+    : "<li>完成一次计算后会保留最近记录</li>";
+  return `<section class="interactive-widget calculator-widget" aria-label="可操作计算器">
+    <div class="calculator-shell">
+      <header><span>LIVE CALCULATOR</span><small>${calculator.operator ? `${escapeHTML(String(calculator.accumulator))} ${escapeHTML(calculator.operator)}` : "可直接点击按键"}</small></header>
+      <output class="calculator-display" aria-live="polite">${escapeHTML(calculator.display)}</output>
+      <div class="calculator-keypad">${keys}</div>
+    </div>
+    <aside><span>RECENT</span><h3>运算历史</h3><ul>${history}</ul></aside>
+  </section>`;
+}
+
+function renderSnakeWidget(interaction) {
+  const game = interaction.snake;
+  const snake = new Set(game.snake);
+  const cells = Array.from({ length: game.boardSize * game.boardSize }, (_, index) => {
+    const kind = index === game.snake[0] ? "head" : snake.has(index) ? "body" : index === game.food ? "food" : "";
+    return `<i class="snake-cell ${kind}" aria-hidden="true"></i>`;
+  }).join("");
+  const status = { idle: "准备开始", running: "游戏中", paused: "已暂停", over: "游戏结束" }[game.status];
+  const toggle = game.status === "running" ? "暂停" : game.status === "over" ? "再来一局" : "开始";
+  return `<section class="interactive-widget snake-widget" tabindex="0" aria-label="可操作贪吃蛇游戏">
+    <div class="snake-game-shell">
+      <header><div><span>LIVE GAME</span><h3>${escapeHTML(status)}</h3></div><div><b>${game.score}</b><small>得分</small><b>${game.highScore}</b><small>最高</small></div></header>
+      <div class="snake-board" style="--snake-size:${game.boardSize}" aria-label="${escapeHTML(status)}，当前得分 ${game.score}">${cells}</div>
+    </div>
+    <aside>
+      <p>使用方向键或下方按钮控制。撞墙或碰到自己后结束。</p>
+      <div class="snake-dpad">
+        <button type="button" data-snake-action="up" aria-label="向上">↑</button>
+        <button type="button" data-snake-action="left" aria-label="向左">←</button>
+        <button type="button" data-snake-action="down" aria-label="向下">↓</button>
+        <button type="button" data-snake-action="right" aria-label="向右">→</button>
+      </div>
+      <div class="snake-actions"><button type="button" data-snake-action="toggle">${toggle}</button><button type="button" data-snake-action="reset">重置</button></div>
+    </aside>
+  </section>`;
+}
+
+function renderInteractiveWidget(preview, interaction) {
+  if (preview.appType === "calculator") return renderCalculatorWidget(interaction);
+  if (preview.appType === "snake") return renderSnakeWidget(interaction);
+  return "";
+}
+
+function syncSnakeTimer() {
+  const workspace = activeWorkspace();
+  const running = workspace?.preview?.appType === "snake" && currentPreviewInteraction().snake.status === "running";
+  if (!running && snakeTimer) {
+    clearInterval(snakeTimer);
+    snakeTimer = null;
+  }
+  if (!running || snakeTimer) return;
+  snakeTimer = setInterval(() => {
+    const current = activeWorkspace();
+    if (!current || current.preview.appType !== "snake") return syncSnakeTimer();
+    const interaction = currentPreviewInteraction();
+    interaction.snake = reduceSnake(interaction.snake, "tick");
+    persist();
+    renderPreview(current);
+  }, 220);
+}
+
 function syncViewerChrome() {
   const activeTab = normalizeDesignTab(state.activeDesignTab);
   const codeActive = state.activePanel === "code";
@@ -299,6 +376,7 @@ function renderPreview(workspace) {
   elements.generatedApp.style.setProperty("--preview-bg", preview.background || "#fffdf9");
   elements.generatedApp.dataset.template = preview.template || "landing";
   elements.generatedApp.dataset.heading = preview.headingStyle || "editorial";
+  elements.generatedApp.dataset.appType = preview.appType || "generic";
   elements.previewBrand.textContent = preview.title;
   elements.previewLogo.textContent = preview.title.slice(0, 1).toUpperCase();
   elements.previewEyebrow.textContent = preview.eyebrow;
@@ -314,7 +392,7 @@ function renderPreview(workspace) {
   elements.previewMetricLabel.textContent = metric.label;
   elements.previewMetricTrend.textContent = metric.trend;
   const sections = previewSectionsFor(preview);
-  elements.previewSections.innerHTML = sections.map(renderPreviewSection).join("");
+  elements.previewSections.innerHTML = `${renderInteractiveWidget(preview, interaction)}${sections.map(renderPreviewSection).join("")}`;
   elements.codeContent.textContent = workspace.code;
   elements.appFrame.className = `app-frame ${state.device}`;
   elements.generatedApp.classList.toggle("design-active", state.designMode);
@@ -326,6 +404,7 @@ function renderPreview(workspace) {
   elements.previewAvatar.setAttribute("aria-expanded", "false");
   renderDesignTools(workspace);
   syncViewerChrome();
+  syncSnakeTimer();
 }
 
 function renderPreviewSection(section, sectionIndex) {
@@ -384,9 +463,11 @@ function render() {
 
 function syncComposerState() {
   const hasValue = !isComposerEmpty(elements.promptInput.value);
+  const busy = planningActive || activeWorkspace()?.runtime?.status === "running" || activeWorkspace()?.phase === "building";
   elements.promptInput.classList.toggle("has-value", hasValue);
   elements.promptInput.dataset.empty = String(!hasValue);
-  elements.sendButton.disabled = !hasValue;
+  elements.sendButton.disabled = !hasValue || busy;
+  elements.sendButton.setAttribute("aria-busy", String(busy));
 }
 
 function renderModelCapability() {
@@ -458,6 +539,9 @@ async function runLiveAgent(workspace, stage) {
   replaceWorkspace(started);
   render();
   try {
+    const context = stage === "build"
+      ? { intent: started.intent, plan: started.runtimePlan, preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.hasBuiltArtifact) }
+      : { preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.hasBuiltArtifact) };
     const response = await fetch("./api/agent/run", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
@@ -465,10 +549,14 @@ async function runLiveAgent(workspace, stage) {
         stage,
         prompt: started.prompt,
         capabilities: started.capabilities,
-        context: { intent: started.intent, plan: started.runtimePlan, preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.runtimePlan) }
+        context
       })
     });
-    if (!response.ok || !response.body) throw new Error("Agent runtime 不可用");
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || `Agent runtime 请求失败（${response.status}）`);
+    }
+    if (!response.body) throw new Error("Agent runtime 未返回事件流");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -556,23 +644,10 @@ function openPublishDialog() {
   elements.publishDialog.showModal();
 }
 
-function standalonePreview(workspace) {
-  const p = workspace.preview;
-  const sections = previewSectionsFor(p)
-    .map((section, sectionIndex) => {
-      const items = (section.items || []).map((item) => `<li><b>${escapeHTML(item.title)}</b><span>${escapeHTML(item.meta)}</span><button type="button" aria-label="选择 ${escapeHTML(item.title)}">选择</button></li>`).join("");
-      const metrics = (section.metrics || []).map((metric) => `<div><small>${escapeHTML(metric.label)}</small><b>${escapeHTML(metric.value)}</b><span>${escapeHTML(metric.trend)}</span></div>`).join("");
-      return `<section class="card" id="section-${sectionIndex}"><small>${escapeHTML(section.type)}</small><h2>${escapeHTML(section.title)}</h2><p>${escapeHTML(section.description)}</p>${metrics ? `<div class="metrics">${metrics}</div>` : ""}<ul>${items}</ul></section>`;
-    })
-    .join("");
-  const primaryAction = escapeHTML(p.primaryAction || p.button || "开始体验");
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHTML(p.title)}</title><style>:root{--accent:${escapeHTML(p.accent)};--bg:${escapeHTML(p.background || "#fffdf9")}}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#222;font-family:system-ui}header{position:sticky;top:0;display:flex;justify-content:space-between;padding:16px 24px;border-bottom:1px solid #e7ded4;background:color-mix(in srgb,var(--bg) 92%,white);backdrop-filter:blur(12px)}header button{border:0;background:transparent;color:#222;font-weight:700}header nav{display:flex;gap:10px}main{max-width:860px;margin:auto;padding:9vh 24px}small{color:var(--accent);font-weight:800;letter-spacing:.15em}h1{font:500 clamp(48px,9vw,88px)/.95 Georgia;margin:16px 0}p{max-width:620px;color:#777;line-height:1.7}.primary{margin-top:20px;padding:12px 18px;border:0;background:var(--accent);color:white}.card{margin-top:52px;padding:38px;border:1px solid #e7ded4;background:#fff}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.metrics div{display:grid;padding:16px;background:color-mix(in srgb,var(--accent) 8%,white)}.metrics b{font:500 28px Georgia}ul{padding:0;list-style:none}li{display:grid;grid-template-columns:1fr 1fr auto;gap:16px;align-items:center;padding:12px 0;border-top:1px solid #eee}li span{color:#777}li button{padding:7px 10px;border:1px solid #ddd;background:white}button{cursor:pointer}button.done{background:#222;color:white}@media(max-width:600px){header{padding:12px}main{padding-inline:16px}.card{padding:24px}li{grid-template-columns:1fr auto}li span{grid-column:1/-1}}</style></head><body><header><button type="button" data-jump="top">${escapeHTML(p.title)}</button><nav><button type="button" data-jump="section-0">${escapeHTML(p.navItems?.[0] || "概览")}</button><button type="button" data-jump="section-1">${escapeHTML(p.navItems?.[1] || "记录")}</button></nav></header><main><small>${escapeHTML(p.eyebrow || "ATOM DEMO PREVIEW")}</small><h1>${escapeHTML(p.title)}</h1><p>${escapeHTML(p.subtitle)}</p><button class="primary" type="button" data-primary>${primaryAction} →</button>${sections}</main><script>document.addEventListener("click",function(event){var jump=event.target.closest("[data-jump]");if(jump){var target=jump.dataset.jump==="top"?document.body:document.getElementById(jump.dataset.jump)||document.getElementById("section-0");window.scrollTo({top:target.offsetTop-64,behavior:"smooth"});}var primary=event.target.closest("[data-primary]");if(primary){primary.classList.toggle("done");primary.textContent=primary.classList.contains("done")?${JSON.stringify(`${primaryAction} ✓`)}:${JSON.stringify(`${primaryAction} →`)};var first=document.getElementById("section-0");if(first)window.scrollTo({top:first.offsetTop-64,behavior:"smooth"});}var item=event.target.closest("li button");if(item){item.classList.toggle("done");item.textContent=item.classList.contains("done")?"已选择":"选择";}});<\/script></body></html>`;
-}
-
 elements.promptInput.addEventListener("input", syncComposerState);
 $("#composer-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (isComposerEmpty(elements.promptInput.value)) return;
+  if (isComposerEmpty(elements.promptInput.value) || elements.sendButton.disabled) return;
   const updated = submitPrompt(activeWorkspace(), elements.promptInput.value);
   replaceWorkspace(updated);
   elements.promptInput.value = "";
@@ -733,6 +808,25 @@ elements.generatedApp.addEventListener("click", (event) => {
     return;
   }
 
+  const calculatorKey = event.target.closest("[data-calculator-key]")?.dataset.calculatorKey;
+  if (calculatorKey) {
+    const interaction = currentPreviewInteraction();
+    interaction.calculator = reduceCalculator(interaction.calculator, calculatorKey);
+    persist();
+    renderPreview(activeWorkspace());
+    return;
+  }
+
+  const snakeAction = event.target.closest("[data-snake-action]")?.dataset.snakeAction;
+  if (snakeAction) {
+    const interaction = currentPreviewInteraction();
+    interaction.snake = reduceSnake(interaction.snake, snakeAction);
+    persist();
+    renderPreview(activeWorkspace());
+    requestAnimationFrame(() => elements.generatedApp.querySelector(".snake-widget")?.focus());
+    return;
+  }
+
   const command = event.target.closest("[data-preview-command]")?.dataset.previewCommand;
   if (command === "profile") {
     const open = elements.previewProfileMenu.hidden;
@@ -778,6 +872,17 @@ elements.generatedApp.addEventListener("click", (event) => {
   persist();
   renderPreview(activeWorkspace());
   showToast(selected.has(itemId) ? "预览项目已选择" : "预览项目已取消选择");
+});
+elements.generatedApp.addEventListener("keydown", (event) => {
+  if (activeWorkspace().preview.appType !== "snake") return;
+  const direction = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" }[event.key];
+  if (!direction && event.key !== " ") return;
+  event.preventDefault();
+  const interaction = currentPreviewInteraction();
+  interaction.snake = reduceSnake(interaction.snake, direction || "toggle");
+  persist();
+  renderPreview(activeWorkspace());
+  requestAnimationFrame(() => elements.generatedApp.querySelector(".snake-widget")?.focus());
 });
 elements.designForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -862,10 +967,11 @@ $("#refresh-button").addEventListener("click", () => {
   showToast("Preview 已从当前工作区状态重新渲染");
 });
 $("#open-preview-button").addEventListener("click", () => {
-  const blob = new Blob([standalonePreview(activeWorkspace())], { type: "text/html" });
-  const url = URL.createObjectURL(blob);
+  const url = new URL(location.href);
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("preview", activeWorkspace().id);
   window.open(url, "_blank", "noopener,noreferrer");
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
 });
 
 $("#mobile-menu").addEventListener("click", () => {

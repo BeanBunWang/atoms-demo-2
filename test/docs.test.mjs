@@ -15,13 +15,16 @@ test("中文交付文档存在且 README 使用中文文件名", async () => {
 
 test("交付说明完整覆盖评审要求和未完成边界", async () => {
   const delivery = await readFile(deliveryUrl, "utf8");
-  for (const heading of ["实现思路与关键取舍", "当前完成程度", "如果继续投入时间：扩展方向与优先级判断"]) {
+  for (const heading of ["实现方案", "技术取舍", "当前完成程度", "验证结果", "完成边界与已知问题", "后续扩展优先级"]) {
     assert.match(delivery, new RegExp(`## ${heading}`));
   }
   for (const requirement of ["真实交互", "数据持久化", "基本使用流程", "至少一个延展能力", "可测试在线链接", "实际可用而非纯 PoC"]) {
     assert.match(delivery, new RegExp(requirement));
   }
   assert.match(delivery, /任意代码执行 \| 未完成/);
-  assert.match(delivery, /真实连接器\/后端 \| 未完成/);
+  assert.match(delivery, /真实 Publish \/ 连接器 \/ 后端 \| 未完成/);
+  assert.match(delivery, /计算器[\s\S]*贪吃蛇/);
+  assert.match(delivery, /增量修改/);
+  assert.match(delivery, /41 项全部通过/);
   assert.match(delivery, /P0[\s\S]*隔离代码沙箱/);
 });
