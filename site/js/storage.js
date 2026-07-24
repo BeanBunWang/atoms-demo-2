@@ -1,4 +1,4 @@
-import { createDemoWorkspace } from "./planner.js?v=14";
+import { createDemoWorkspace } from "./planner.js?v=15";
 
 export const STORAGE_KEY = "atoms-demo-workspace-v6";
 export const LEGACY_STORAGE_KEY = "atoms-demo-workspace-v5";

@@ -101,12 +101,12 @@ test("真实模型结果会更新计划、预览和代码", () => {
     assistantMessage: "我把需求聚焦为一条可收藏的城市路线。",
     plan: Array.from({ length: 4 }, (_, index) => ({ title: `步骤 ${index + 1}`, detail: `交付 ${index + 1}` })),
     preview: { title: "城市拾光", subtitle: "发现附近的好去处", cardTitle: "今日路线", cardMeta: "3 个地点", button: "开始探索", accent: "#123456" }
-  }, "deepseek-v4-flash");
+  }, "deepseek-v4-pro");
 
-  assert.equal(updated.modelSource, "deepseek-v4-flash");
+  assert.equal(updated.modelSource, "deepseek-v4-pro");
   assert.equal(updated.preview.title, "城市拾光");
   assert.equal(updated.artifactRevision, 1);
-  assert.equal(updated.versions.at(-1).source, "deepseek-v4-flash");
+  assert.equal(updated.versions.at(-1).source, "deepseek-v4-pro");
   assert.match(updated.code, /城市拾光/);
   assert.match(updated.messages.at(-1).text, /聚焦/);
 });

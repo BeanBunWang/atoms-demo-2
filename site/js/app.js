@@ -15,8 +15,8 @@ import {
   rollbackWorkspaceVersion,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=14";
-import { STORAGE_KEY, initialState, loadState, parseImportedState, saveState } from "./storage.js?v=14";
+} from "./planner.js?v=15";
+import { STORAGE_KEY, initialState, loadState, parseImportedState, saveState } from "./storage.js?v=15";
 import {
   COMPONENT_LIBRARY,
   THEME_PRESETS,
@@ -25,16 +25,16 @@ import {
   normalizeDesignTab,
   normalizePreviewInteraction,
   themePatch
-} from "./viewer.js?v=14";
-import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=14";
-import { buildPreviewFixPrompt, recordPreviewVerification } from "./preview-loop.js?v=14";
+} from "./viewer.js?v=15";
+import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=15";
+import { buildPreviewFixPrompt, recordPreviewVerification } from "./preview-loop.js?v=15";
 import {
   applyCodeDraft,
   locateSourceFile,
   normalizeSourceFiles,
   scopeCssSelectors,
   updateSourceFile
-} from "./code-workspace.js?v=14";
+} from "./code-workspace.js?v=15";
 import {
   getSession,
   loadCloudWorkspaceState,
@@ -42,7 +42,7 @@ import {
   logoutAccount,
   registerAccount,
   saveCloudWorkspaceState
-} from "./auth.js?v=14";
+} from "./auth.js?v=15";
 
 let state = loadState();
 state = { ...state, workspaces: state.workspaces.map(ensureWorkspaceSourceFiles) };
@@ -707,7 +707,7 @@ async function detectModelCapability() {
     const response = await fetch("./api/health", { cache: "no-store", headers: { Accept: "application/json" } });
     if (!response.ok) throw new Error("Model proxy unavailable");
     const payload = await response.json();
-    modelCapability = { realModel: Boolean(payload.realModel), model: payload.model || "deepseek-v4-flash", checked: true };
+    modelCapability = { realModel: Boolean(payload.realModel), model: payload.model || "deepseek-v4-pro", checked: true };
   } catch {
     modelCapability = { realModel: false, model: "local-fallback", checked: true };
   }

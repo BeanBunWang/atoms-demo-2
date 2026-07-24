@@ -7,7 +7,7 @@ import { createWorker } from "../worker.mjs";
 function testEnv(overrides = {}) {
   return {
     DEEPSEEK_API_KEY: "server-secret",
-    DEEPSEEK_MODEL: "deepseek-v4-flash",
+    DEEPSEEK_MODEL: "deepseek-v4-pro",
     AUTH_PEPPER: "test-only-auth-pepper-with-enough-entropy",
     ASSETS: { fetch: async () => new Response("asset") },
     AGENT_RATE_LIMITER: { limit: async () => ({ success: true }) },
@@ -29,7 +29,7 @@ async function authCookie(worker, env) {
 test("Worker 健康检查不暴露服务端密钥", async () => {
   const response = await createWorker().fetch(new Request("https://atoms.example/api/health"), testEnv());
   const payload = await response.json();
-  assert.deepEqual(payload, { realModel: true, model: "deepseek-v4-flash" });
+  assert.deepEqual(payload, { realModel: true, model: "deepseek-v4-pro" });
   assert.equal(JSON.stringify(payload).includes("server-secret"), false);
 });
 
@@ -75,7 +75,7 @@ test("Worker 以 NDJSON 输出真实意图、计划和审批事件", async () =>
           { id: "2", agent: "alex", title: "实现应用", goal: "生成页面", tool: "compose_app" },
           { id: "3", agent: "mike", title: "验证交付", goal: "检查结果", tool: "validate_artifact" }
         ] };
-    return new Response(JSON.stringify({ model: "deepseek-v4-flash", choices: [{ message: { content: JSON.stringify(content) } }] }), {
+    return new Response(JSON.stringify({ model: "deepseek-v4-pro", choices: [{ message: { content: JSON.stringify(content) } }] }), {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });

@@ -1,4 +1,4 @@
-const DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_MODEL = "deepseek-v4-pro";
 
 export function resolveModel(env) {
   const configured = env.DEEPSEEK_MODEL?.trim();
@@ -85,9 +85,10 @@ export function buildDeepSeekRequest(prompt, context = {}, model = DEFAULT_MODEL
         content: `用户需求：${prompt}\n当前应用：${JSON.stringify({ title: current.title, subtitle: current.subtitle, cardTitle: current.cardTitle })}`
       }
     ],
-    thinking: { type: "disabled" },
+    thinking: { type: "enabled" },
+    reasoning_effort: "high",
     response_format: { type: "json_object" },
-    max_tokens: 1000,
+    max_tokens: 2400,
     stream: false
   };
 }
@@ -98,7 +99,7 @@ async function requestCompletion({ messages, env, fetchImpl, maxTokens }) {
   const baseUrl = (env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com").replace(/\/+$/, "");
   const model = resolveModel(env);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
+  const timer = setTimeout(() => controller.abort(), 120_000);
   try {
     const response = await fetchImpl(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -106,7 +107,8 @@ async function requestCompletion({ messages, env, fetchImpl, maxTokens }) {
       body: JSON.stringify({
         model,
         messages: [{ role: "system", content: messages.system }, { role: "user", content: messages.user }],
-        thinking: { type: "disabled" },
+        thinking: { type: "enabled" },
+        reasoning_effort: "high",
         response_format: { type: "json_object" },
         max_tokens: maxTokens,
         stream: false
@@ -133,7 +135,7 @@ export async function requestDeepSeekPlan({ prompt, context, env, fetchImpl = fe
   return { result: parseModelContent(completion.content), model: completion.model, usage: completion.usage };
 }
 
-export async function requestDeepSeekJson({ messages, env, fetchImpl = fetch, maxTokens = 3600 }) {
+export async function requestDeepSeekJson({ messages, env, fetchImpl = fetch, maxTokens = 6000 }) {
   const completion = await requestCompletion({ messages, env, fetchImpl, maxTokens });
   return parseJsonContent(completion.content);
 }

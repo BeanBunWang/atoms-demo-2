@@ -7,7 +7,7 @@ import { createWorker } from "../worker.mjs";
 function testEnv() {
   return {
     DEEPSEEK_API_KEY: "server-secret",
-    DEEPSEEK_MODEL: "deepseek-v4-flash",
+    DEEPSEEK_MODEL: "deepseek-v4-pro",
     AUTH_PEPPER: "test-only-auth-pepper-with-enough-entropy",
     ASSETS: { fetch: async () => new Response("asset") },
     AGENT_RATE_LIMITER: { limit: async () => ({ success: true }) },

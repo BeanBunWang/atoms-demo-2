@@ -20,7 +20,7 @@ cp .env.example .env
 npm start
 ```
 
-打开 <http://127.0.0.1:4173>。模型默认固定为 `deepseek-v4-flash`；`.env` 已被 Git 忽略，API Key 只在服务端读取。
+打开 <http://127.0.0.1:4173>。模型默认固定为 `deepseek-v4-pro`，显式启用思考模式（`reasoning_effort=high`）与 JSON Output；`.env` 已被 Git 忽略，API Key 只在服务端读取。
 
 本地 Node 服务使用进程内账号存储，适合开发和测试；Cloudflare 部署通过 KV 保存账号、会话、项目、对话、源码和版本。线上账号校验还需要独立的 `AUTH_PEPPER` Secret。
 

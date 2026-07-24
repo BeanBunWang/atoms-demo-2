@@ -410,7 +410,7 @@ function filesFromArtifact(artifact) {
   }));
 }
 
-export function applyRuntimeResult(workspace, event, model = "deepseek-v4-flash", now = new Date().toISOString()) {
+export function applyRuntimeResult(workspace, event, model = "deepseek-v4-pro", now = new Date().toISOString()) {
   if (event.stage === "plan") {
     const updated = applyRuntimeEvent(workspace, event, now);
     if (event.status === "awaiting_clarification") {
@@ -577,7 +577,7 @@ export function updatePreview(workspace, patch, now = new Date().toISOString()) 
   };
 }
 
-export function applyModelPlan(workspace, modelResult, model = "deepseek-v4-flash", now = new Date().toISOString()) {
+export function applyModelPlan(workspace, modelResult, model = "deepseek-v4-pro", now = new Date().toISOString()) {
   const preview = { ...workspace.preview, ...modelResult.preview };
   const code = preview.sections ? createDynamicCode(preview) : createCode(preview);
   const committed = commitWorkspaceRevision(workspace, {
