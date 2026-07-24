@@ -78,6 +78,33 @@ test("真实请求使用服务端密钥且返回规范化结果", async () => {
   assert.equal(response.result.preview.title, "喝水助手");
 });
 
+test("思考模式偶发空 JSON 时会自动重试一次", async () => {
+  let calls = 0;
+  const fakeFetch = async () => {
+    calls += 1;
+    const content = calls === 1
+      ? ""
+      : JSON.stringify({
+          title: "订单看板",
+          assistantMessage: "计划已生成",
+          plan: Array.from({ length: 4 }, (_, index) => ({ title: `步骤 ${index + 1}`, detail: "完成交付" })),
+          preview: { title: "订单看板", subtitle: "减少漏单", cardTitle: "待制作", cardMeta: "3 单", button: "查看订单", accent: "#246bfd" }
+        });
+    return new Response(JSON.stringify({ model: "deepseek-v4-pro", choices: [{ message: { content } }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  };
+  const response = await requestDeepSeekPlan({
+    prompt: "做一个订单看板",
+    context: {},
+    env: { DEEPSEEK_API_KEY: "server-secret", DEEPSEEK_MODEL: "deepseek-v4-pro" },
+    fetchImpl: fakeFetch
+  });
+  assert.equal(calls, 2);
+  assert.equal(response.result.title, "订单看板");
+});
+
 test("健康检查只暴露模型可用状态", async (t) => {
   const server = createAppServer({ env: { DEEPSEEK_API_KEY: "hidden", DEEPSEEK_MODEL: "deepseek-v4-pro" } });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

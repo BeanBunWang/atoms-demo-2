@@ -64,6 +64,27 @@ function parseModelContent(content) {
   return normalizeModelResult(parseJsonContent(content));
 }
 
+function shouldRetryCompletion(error) {
+  return error instanceof SyntaxError
+    || error?.status === 429
+    || Number(error?.status) >= 500
+    || /模型未返回/.test(error?.message || "");
+}
+
+async function requestParsedCompletion({ messages, env, fetchImpl, maxTokens, parse }) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const completion = await requestCompletion({ messages, env, fetchImpl, maxTokens });
+      return { value: parse(completion.content), completion };
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryCompletion(error) || attempt === 1) throw error;
+    }
+  }
+  throw lastError;
+}
+
 export function buildDeepSeekRequest(prompt, context = {}, model = DEFAULT_MODEL) {
   const current = context.preview || {};
   return {
@@ -116,7 +137,11 @@ async function requestCompletion({ messages, env, fetchImpl, maxTokens }) {
       signal: controller.signal
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error("模型服务暂时不可用");
+    if (!response.ok) {
+      const error = new Error("模型服务暂时不可用");
+      error.status = response.status;
+      throw error;
+    }
     return { content: payload.choices?.[0]?.message?.content, model: payload.model || model, usage: payload.usage || null };
   } finally {
     clearTimeout(timer);
@@ -126,16 +151,17 @@ async function requestCompletion({ messages, env, fetchImpl, maxTokens }) {
 export async function requestDeepSeekPlan({ prompt, context, env, fetchImpl = fetch }) {
   const current = context?.preview || {};
   const request = buildDeepSeekRequest(prompt, context, resolveModel(env));
-  const completion = await requestCompletion({
+  const { value, completion } = await requestParsedCompletion({
     messages: { system: request.messages[0].content, user: `用户需求：${prompt}\n当前应用：${JSON.stringify({ title: current.title, subtitle: current.subtitle, cardTitle: current.cardTitle })}` },
     env,
     fetchImpl,
-    maxTokens: request.max_tokens
+    maxTokens: request.max_tokens,
+    parse: parseModelContent
   });
-  return { result: parseModelContent(completion.content), model: completion.model, usage: completion.usage };
+  return { result: value, model: completion.model, usage: completion.usage };
 }
 
 export async function requestDeepSeekJson({ messages, env, fetchImpl = fetch, maxTokens = 6000 }) {
-  const completion = await requestCompletion({ messages, env, fetchImpl, maxTokens });
-  return parseJsonContent(completion.content);
+  const { value } = await requestParsedCompletion({ messages, env, fetchImpl, maxTokens, parse: parseJsonContent });
+  return value;
 }
