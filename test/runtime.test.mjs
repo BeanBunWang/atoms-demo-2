@@ -130,6 +130,39 @@ test("修改产物带版本且 no-op 会被验证拒绝", () => {
   assert.match(verification.issues.join(" "), /没有产生/);
 });
 
+test("产物包含真实 sourceFiles 且 App.jsx 带安全 Preview JSON 标记", () => {
+  const intent = inferIntent("做一个宠物疫苗提醒应用");
+  const artifact = normalizeArtifact({ preview: {
+    template: "tracker",
+    title: "宠护日历",
+    subtitle: "宠物疫苗记录与提醒",
+    sections: [
+      { id: "timeline", type: "timeline", title: "疫苗时间线" },
+      { id: "profile", type: "cards", title: "宠物档案" },
+      { id: "progress", type: "progress", title: "免疫进度" }
+    ]
+  }, sourceFiles: [{ path: "src/App.jsx", language: "jsx", content: "broken" }, { path: "../secret.txt", language: "text", content: "nope" }] }, intent);
+  assert.deepEqual(artifact.sourceFiles.slice(0, 3).map((file) => file.path), ["src/App.jsx", "src/styles.css", "src/app.config.json"]);
+  const app = artifact.sourceFiles.find((file) => file.path === "src/App.jsx").content;
+  const marker = app.match(/ATOMS_CONFIG_START \*\/\s*([\s\S]*?)\s*\/\* ATOMS_CONFIG_END/);
+  assert.ok(marker);
+  assert.equal(JSON.stringify(JSON.parse(marker[1])), JSON.stringify(artifact.preview));
+  assert.equal(validateArtifact(artifact, intent).passed, true);
+});
+
+test("修改任务不接受完整 preview 作为增量 patch", () => {
+  const previous = normalizeArtifact({ preview: {
+    title: "计算器",
+    appType: "calculator",
+    sections: [{ id: "a", type: "stats", title: "结果" }, { id: "b", type: "cards", title: "按键" }, { id: "c", type: "list", title: "历史" }]
+  } }, inferIntent("做一个计算器")).preview;
+  const intent = normalizeIntent({ type: "modify_app", goal: "只增加百分比", domain: "计算器" }, "只增加百分比", { hasExistingApp: true });
+  const artifact = normalizeArtifact({ preview: { ...previous, title: "不应覆盖", capabilities: ["percent"] } }, intent, { previousPreview: previous, baseRevision: 2 });
+  assert.equal(artifact.preview.title, previous.title);
+  assert.equal(artifact.preview.capabilities.includes("percent"), true);
+  assert.equal(validateArtifact(artifact, intent, { previousPreview: previous, baseRevision: 2 }).passed, true);
+});
+
 test("runtime 先计划审批，再执行工具、生成产物并验证", async () => {
   const events = [];
   const responses = [
@@ -207,4 +240,47 @@ test("首次生成连续验证失败时回落到可操作安全产物", async ()
   assert.equal(result.artifact.preview.appType, "calculator");
   assert.equal(result.artifact.preview.title, "计算器助手");
   assert.ok(events.some((event) => event.type === "runtime.fallback"));
+});
+
+test("模型在规划或代码生成阶段返回损坏 JSON 时仍能完成闭环", async () => {
+  const planningEvents = [];
+  let planningCalls = 0;
+  const planRun = await runAgentRuntime({
+    stage: "plan",
+    prompt: "做一个咖啡店订单看板",
+    complete: async () => {
+      planningCalls += 1;
+      if (planningCalls === 1) {
+        return {
+          type: "build_app",
+          goal: "构建咖啡店订单看板",
+          domain: "餐饮零售",
+          audience: "咖啡店员工",
+          entities: ["订单", "营收"],
+          requestedFeatures: ["订单状态", "今日营收", "待制作列表"],
+          confidence: .95
+        };
+      }
+      throw new SyntaxError("Unterminated string in JSON");
+    },
+    emit: (event) => planningEvents.push(event)
+  });
+  assert.equal(planRun.status, "awaiting_approval");
+  assert.ok(planningEvents.some((event) => event.type === "runtime.fallback" && event.phase === "planning"));
+
+  const buildEvents = [];
+  const buildRun = await runAgentRuntime({
+    stage: "build",
+    prompt: "做一个咖啡店订单看板",
+    context: { intent: planRun.intent, plan: planRun.plan, artifactRevision: 0 },
+    complete: async () => {
+      throw new SyntaxError("Unterminated string in JSON");
+    },
+    emit: (event) => buildEvents.push(event)
+  });
+  assert.equal(buildRun.status, "ready");
+  assert.equal(buildRun.artifact.preview.title, "餐饮零售助手");
+  assert.ok(buildRun.artifact.sourceFiles.some((file) => file.path === "src/App.jsx"));
+  assert.ok(buildEvents.some((event) => event.type === "runtime.fallback" && event.phase === "execution"));
+  assert.ok(buildEvents.some((event) => event.type === "verification.completed"));
 });

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { createMemoryDataStore } from "../backend/auth.mjs";
 import { createWorker } from "../worker.mjs";
 
 function testEnv(overrides = {}) {
@@ -9,8 +10,19 @@ function testEnv(overrides = {}) {
     DEEPSEEK_MODEL: "deepseek-v4-flash",
     ASSETS: { fetch: async () => new Response("asset") },
     AGENT_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    ATOMS_DATA: createMemoryDataStore(),
     ...overrides
   };
+}
+
+async function authCookie(worker, env) {
+  const response = await worker.fetch(new Request("https://atoms.example/api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: "https://atoms.example" },
+    body: JSON.stringify({ email: `agent-${crypto.randomUUID()}@example.com`, password: "correct-password" })
+  }), env);
+  assert.equal(response.status, 201);
+  return response.headers.get("set-cookie").split(";")[0];
 }
 
 test("Worker 健康检查不暴露服务端密钥", async () => {
@@ -22,27 +34,32 @@ test("Worker 健康检查不暴露服务端密钥", async () => {
 
 test("Worker 拒绝跨站与超大 Agent 请求", async () => {
   const worker = createWorker();
+  const env = testEnv();
   const crossSite = await worker.fetch(new Request("https://atoms.example/api/agent/run", {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: "https://evil.example" },
     body: JSON.stringify({ prompt: "做一个应用" })
-  }), testEnv());
+  }), env);
   assert.equal(crossSite.status, 403);
 
+  const cookie = await authCookie(worker, env);
   const tooLarge = await worker.fetch(new Request("https://atoms.example/api/agent/run", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Content-Length": "40000" },
+    headers: { "Content-Type": "application/json", "Content-Length": "40000", Cookie: cookie },
     body: JSON.stringify({ prompt: "做一个应用" })
-  }), testEnv());
+  }), env);
   assert.equal(tooLarge.status, 413);
 });
 
 test("Worker 按 IP 限制公开模型请求", async () => {
-  const response = await createWorker().fetch(new Request("https://atoms.example/api/agent/run", {
+  const worker = createWorker();
+  const env = testEnv({ AGENT_RATE_LIMITER: { limit: async ({ key }) => ({ success: key !== "203.0.113.7" }) } });
+  const cookie = await authCookie(worker, env);
+  const response = await worker.fetch(new Request("https://atoms.example/api/agent/run", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7" },
+    headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.7", Cookie: cookie },
     body: JSON.stringify({ prompt: "做一个应用" })
-  }), testEnv({ AGENT_RATE_LIMITER: { limit: async ({ key }) => ({ success: key !== "203.0.113.7" }) } }));
+  }), env);
   assert.equal(response.status, 429);
 });
 
@@ -62,11 +79,14 @@ test("Worker 以 NDJSON 输出真实意图、计划和审批事件", async () =>
       headers: { "Content-Type": "application/json" }
     });
   };
-  const response = await createWorker({ fetchImpl: fakeFetch }).fetch(new Request("https://atoms.example/api/agent/run", {
+  const worker = createWorker({ fetchImpl: fakeFetch });
+  const env = testEnv();
+  const cookie = await authCookie(worker, env);
+  const response = await worker.fetch(new Request("https://atoms.example/api/agent/run", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Origin: "https://atoms.example" },
+    headers: { "Content-Type": "application/json", Origin: "https://atoms.example", Cookie: cookie },
     body: JSON.stringify({ stage: "plan", prompt: "做一个宠物疫苗提醒应用" })
-  }), testEnv(), { waitUntil() {} });
+  }), env, { waitUntil() {} });
   assert.match(response.headers.get("content-type"), /application\/x-ndjson/);
   const events = (await response.text()).trim().split("\n").map(JSON.parse);
   assert.ok(events.some((event) => event.type === "intent.classified"));

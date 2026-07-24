@@ -9,6 +9,12 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
+  "kv_namespaces": [
+    {
+      "binding": "ATOMS_DATA",
+      "id": "302d2c933a87485795fb02fdd2e27f56"
+    }
+  ],
   "ratelimits": [
     {
       "name": "AGENT_RATE_LIMITER",

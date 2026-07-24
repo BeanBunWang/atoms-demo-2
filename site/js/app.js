@@ -8,13 +8,15 @@ import {
   beginAgentRun,
   buildProgress,
   createWorkspace,
+  ensureWorkspaceSourceFiles,
   isComposerEmpty,
   nextBuildStep,
   publishWorkspace,
+  rollbackWorkspaceVersion,
   submitPrompt,
   updatePreview
-} from "./planner.js?v=13";
-import { loadState, saveState } from "./storage.js?v=13";
+} from "./planner.js?v=14";
+import { STORAGE_KEY, initialState, loadState, parseImportedState, saveState } from "./storage.js?v=14";
 import {
   COMPONENT_LIBRARY,
   THEME_PRESETS,
@@ -23,14 +25,32 @@ import {
   normalizeDesignTab,
   normalizePreviewInteraction,
   themePatch
-} from "./viewer.js?v=13";
-import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=13";
-import { buildPreviewFixPrompt, recordPreviewVerification } from "./preview-loop.js?v=13";
+} from "./viewer.js?v=14";
+import { CALCULATOR_KEYS, reduceCalculator, reduceSnake } from "./interactive.js?v=14";
+import { buildPreviewFixPrompt, recordPreviewVerification } from "./preview-loop.js?v=14";
+import {
+  applyCodeDraft,
+  locateSourceFile,
+  normalizeSourceFiles,
+  scopeCssSelectors,
+  updateSourceFile
+} from "./code-workspace.js?v=14";
+import {
+  getSession,
+  loadCloudWorkspaceState,
+  loginAccount,
+  logoutAccount,
+  registerAccount,
+  saveCloudWorkspaceState
+} from "./auth.js?v=14";
 
 let state = loadState();
+state = { ...state, workspaces: state.workspaces.map(ensureWorkspaceSourceFiles) };
+const anonymousState = state;
 const previewOnlyWorkspaceId = new URLSearchParams(location.search).get("preview");
 if (previewOnlyWorkspaceId && state.workspaces.some((workspace) => workspace.id === previewOnlyWorkspaceId)) {
   state.activeWorkspaceId = previewOnlyWorkspaceId;
+  state.activeView = "builder";
   document.body.classList.add("standalone-preview");
 }
 let buildTimer = null;
@@ -38,10 +58,31 @@ let snakeTimer = null;
 let toastTimer = null;
 let planningActive = false;
 let modelCapability = { realModel: false, model: "local-fallback", checked: false };
+let currentUser = null;
+let authMode = "login";
+let cloudSaveTimer = null;
+let codeDraft = null;
+let bootComplete = false;
+let hasActivatedAccount = false;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const elements = {
+  authGateway: $("#auth-gateway"),
+  appShell: $("#app-shell"),
+  authDialog: $("#auth-dialog"),
+  authForm: $("#auth-form"),
+  authDialogTitle: $("#auth-dialog-title"),
+  authNameField: $("#auth-name-field"),
+  authError: $("#auth-error"),
+  authSubmitButton: $("#auth-submit-button"),
+  accountDialog: $("#account-dialog"),
+  homeView: $("#home-view"),
+  topbar: $("#topbar"),
+  mainContent: $("#main-content"),
+  homeComposer: $("#home-composer"),
+  homePrompt: $("#home-prompt"),
+  recentProjectGrid: $("#recent-project-grid"),
   sidebar: $("#sidebar"),
   sidebarScrim: $("#sidebar-scrim"),
   projectList: $("#project-list"),
@@ -71,6 +112,18 @@ const elements = {
   previewAvatar: $("#preview-avatar"),
   previewProfileMenu: $("#preview-profile-menu"),
   designPreview: $("#design-preview"),
+  designShell: $(".design-shell"),
+  designSidebar: $(".design-sidebar"),
+  codeWorkspace: $("#code-workspace"),
+  codeEditor: $("#code-editor"),
+  codeFileList: $("#code-file-list"),
+  codeFileCount: $("#code-file-count"),
+  codeActivePath: $("#code-active-path"),
+  codeLanguage: $("#code-language"),
+  codeDirtyIndicator: $("#code-dirty-indicator"),
+  codeRevisionLabel: $("#code-revision-label"),
+  codeVersionSelect: $("#code-version-select"),
+  codeEditorStatus: $("#code-editor-status"),
   codeView: $("#code-view"),
   codeContent: $("#code-content"),
   currentComponents: $("#current-components"),
@@ -120,7 +173,9 @@ function escapeHTML(value) {
 }
 
 function persist() {
-  saveState(state);
+  const cacheKey = currentUser ? `${STORAGE_KEY}:${currentUser.id}` : STORAGE_KEY;
+  saveState(state, globalThis.localStorage, cacheKey);
+  if (currentUser && bootComplete) scheduleCloudSave();
 }
 
 function replaceWorkspace(workspace) {
@@ -133,6 +188,32 @@ function showToast(message) {
   elements.toast.textContent = message;
   elements.toast.classList.add("visible");
   toastTimer = setTimeout(() => elements.toast.classList.remove("visible"), 2400);
+}
+
+function initials(value) {
+  const parts = String(value || "User").trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)[0]}` : parts[0]?.slice(0, 2) || "U").toUpperCase();
+}
+
+function setSyncStatus(label, stateName = "") {
+  const target = $("#sync-status");
+  if (!target) return;
+  target.textContent = label;
+  target.dataset.status = stateName;
+}
+
+function scheduleCloudSave() {
+  clearTimeout(cloudSaveTimer);
+  setSyncStatus("Saving…", "saving");
+  cloudSaveTimer = setTimeout(async () => {
+    try {
+      await saveCloudWorkspaceState(state);
+      setSyncStatus("Saved to cloud", "saved");
+    } catch (error) {
+      setSyncStatus("Saved locally", "error");
+      showToast(`云端保存失败，本地副本仍然可用：${error.message}`);
+    }
+  }, 650);
 }
 
 function phaseLabel(workspace) {
@@ -151,6 +232,105 @@ function renderProjects() {
         </button>`
     )
     .join("");
+}
+
+function renderIdentity() {
+  if (!currentUser) return;
+  const avatar = initials(currentUser.name);
+  for (const id of ["user-avatar", "home-user-avatar", "account-avatar"]) {
+    const target = $(`#${id}`);
+    if (target) target.textContent = avatar;
+  }
+  for (const id of ["user-name", "home-user-name", "account-name", "account-dialog-name"]) {
+    const target = $(`#${id}`);
+    if (target) target.textContent = currentUser.name;
+  }
+  for (const id of ["user-email", "account-email"]) {
+    const target = $(`#${id}`);
+    if (target) target.textContent = currentUser.email;
+  }
+  elements.previewAvatar.textContent = avatar;
+  $("#preview-profile-name").textContent = currentUser.name;
+  $("#preview-profile-email").textContent = currentUser.email;
+}
+
+function renderHome() {
+  const projects = [...state.workspaces].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 6);
+  elements.recentProjectGrid.innerHTML = projects
+    .map((workspace) => `<button type="button" class="recent-project-card" data-open-workspace="${escapeHTML(workspace.id)}">
+      <span class="recent-project-visual" style="--project-bg:${escapeHTML(workspace.preview?.background || "#f2f3f6")};--project-accent:${escapeHTML(workspace.preview?.accent || "#246bfd")}"><span>${escapeHTML(workspace.title.slice(0, 1).toUpperCase())}</span></span>
+      <footer><strong>${escapeHTML(workspace.title)}</strong><small>revision ${workspace.artifactRevision || 0} · ${escapeHTML(phaseLabel(workspace))}</small><b>→</b></footer>
+    </button>`)
+    .join("");
+}
+
+function setActiveView(view, { persistState = true } = {}) {
+  state.activeView = view === "home" ? "home" : "builder";
+  const home = state.activeView === "home";
+  elements.homeView.hidden = !home;
+  elements.topbar.hidden = home;
+  elements.mainContent.hidden = home;
+  $(".workspace").classList.toggle("home-active", home);
+  $$("[data-nav]").forEach((button) => button.classList.toggle("active", button.dataset.nav === (home ? "home" : "projects")));
+  if (persistState) persist();
+  if (home) renderHome();
+}
+
+function workspaceSourceFiles(workspace) {
+  let files = normalizeSourceFiles(workspace.sourceFiles || workspace.files || []);
+  const appFile = locateSourceFile(files, "src/App.jsx")?.file;
+  if (workspace.code && (!appFile || !appFile.content)) files = updateSourceFile(files, "src/App.jsx", { type: "jsx", content: workspace.code, status: "modified" });
+  return files;
+}
+
+function fileLabel(file) {
+  const extension = file.path.split(".").pop()?.toLowerCase();
+  return extension === "jsx" ? "JSX" : extension === "css" ? "CSS" : extension === "json" ? "JSON" : (extension || "TEXT").toUpperCase();
+}
+
+function renderCodeWorkspace(workspace) {
+  const files = workspaceSourceFiles(workspace);
+  const preferred = state.activeCodeFile;
+  const active = locateSourceFile(files, preferred)?.file || files[0];
+  if (!active) {
+    elements.codeFileList.innerHTML = `<p class="code-empty">Agent 尚未生成源文件。</p>`;
+    elements.codeEditor.value = "";
+    elements.codeEditor.disabled = true;
+    return;
+  }
+  state.activeCodeFile = active.path;
+  elements.codeFileCount.textContent = files.length;
+  elements.codeFileList.innerHTML = files.map((file) => `<button type="button" class="code-file-button ${file.path === active.path ? "active" : ""}" data-code-file="${escapeHTML(file.path)}"><span>${file.type === "css" ? "#" : file.type === "json" ? "{}" : "◇"}</span><span>${escapeHTML(file.path.replace(/^src\//, ""))}</span>${codeDraft?.dirty && codeDraft.path === file.path ? "<i></i>" : ""}</button>`).join("");
+  if (!codeDraft || codeDraft.workspaceId !== workspace.id || codeDraft.path !== active.path || (!codeDraft.dirty && codeDraft.original !== active.content)) {
+    codeDraft = { workspaceId: workspace.id, path: active.path, original: active.content, content: active.content, dirty: false };
+  }
+  if (elements.codeEditor.value !== codeDraft.content) elements.codeEditor.value = codeDraft.content;
+  elements.codeEditor.disabled = false;
+  elements.codeActivePath.textContent = active.path;
+  elements.codeLanguage.textContent = fileLabel(active);
+  elements.codeDirtyIndicator.hidden = !codeDraft.dirty;
+  elements.codeRevisionLabel.textContent = `revision ${workspace.artifactRevision || 0}`;
+  elements.codeEditorStatus.textContent = codeDraft.dirty
+    ? "草稿已修改；Apply 会先校验，再创建一个新 revision。"
+    : "选左侧文件直接修改；应用前会校验，并自动创建新版本。";
+  const versions = [...(workspace.versions || [])].sort((a, b) => b.revision - a.revision);
+  elements.codeVersionSelect.innerHTML = versions.length
+    ? versions.map((version) => `<option value="${version.revision}">revision ${version.revision} · ${escapeHTML(version.source || "artifact")}</option>`).join("")
+    : `<option value="${workspace.artifactRevision || 0}">revision ${workspace.artifactRevision || 0}</option>`;
+  elements.codeVersionSelect.value = String(workspace.artifactRevision || versions[0]?.revision || 0);
+  $("#rollback-version-button").disabled = !versions.some((version) => version.revision < (workspace.artifactRevision || 0));
+}
+
+function renderScopedPreviewCss(workspace) {
+  const cssFile = workspaceSourceFiles(workspace).find((file) => file.path.endsWith(".css"));
+  let style = $("#generated-preview-custom-css");
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "generated-preview-custom-css";
+    document.head.append(style);
+  }
+  const scoped = scopeCssSelectors(cssFile?.content || "");
+  style.textContent = scoped.ok ? scoped.css : "";
 }
 
 function renderHeader(workspace) {
@@ -316,10 +496,15 @@ function syncViewerChrome() {
     pane.hidden = codeActive ? pane.dataset.designPane !== "visual" : pane.dataset.designPane !== activeTab;
   });
   elements.appFrame.hidden = codeActive || activeTab !== "visual";
-  elements.codeView.hidden = !codeActive;
+  elements.codeWorkspace.hidden = !codeActive;
+  elements.codeView.hidden = true;
+  elements.designSidebar.hidden = codeActive;
+  elements.designShell.classList.toggle("code-active", codeActive);
   $$('[data-panel]').forEach((button) => {
-    button.classList.toggle("active", codeActive);
-    button.setAttribute("aria-pressed", String(codeActive));
+    const active = button.dataset.panel === (codeActive ? "code" : "preview");
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.setAttribute("aria-selected", String(active));
   });
   $$('[data-device]').forEach((button) => {
     const active = button.dataset.device === state.device;
@@ -367,7 +552,7 @@ function renderMessages(workspace) {
       const agent = message.agent ? AGENTS.find((item) => item.key === message.agent) : null;
       const isUser = message.role === "user";
       return `<article class="message ${isUser ? "user" : "agent"}">
-        <div class="message-avatar">${isUser ? "TW" : `<img src="${escapeHTML(agent?.avatar || AGENTS[0].avatar)}" alt="" />`}</div>
+        <div class="message-avatar">${isUser ? escapeHTML(initials(currentUser?.name || "You")) : `<img src="${escapeHTML(agent?.avatar || AGENTS[0].avatar)}" alt="" />`}</div>
         <div class="message-body"><div class="message-meta"><strong>${isUser ? "You" : escapeHTML(agent?.name || "Atoms")}</strong><span>${isUser ? "" : escapeHTML(agent?.role || "Agent")}</span></div><div class="message-bubble">${escapeHTML(message.text)}</div></div>
       </article>`;
     })
@@ -400,6 +585,7 @@ function renderPreview(workspace) {
   const sections = previewSectionsFor(preview);
   elements.previewSections.innerHTML = `${renderInteractiveWidget(preview, interaction)}${sections.map(renderPreviewSection).join("")}`;
   elements.codeContent.textContent = workspace.code;
+  renderScopedPreviewCss(workspace);
   elements.appFrame.className = `app-frame ${state.device}`;
   elements.generatedApp.classList.toggle("design-active", state.designMode);
   elements.designButton.classList.toggle("active", state.designMode);
@@ -409,6 +595,7 @@ function renderPreview(workspace) {
   elements.previewProfileMenu.hidden = true;
   elements.previewAvatar.setAttribute("aria-expanded", "false");
   renderDesignTools(workspace);
+  renderCodeWorkspace(workspace);
   syncViewerChrome();
   syncSnakeTimer();
   renderPreviewHealth(workspace);
@@ -485,12 +672,15 @@ function renderCapabilities(workspace) {
 function render() {
   const workspace = activeWorkspace();
   if (!workspace) return;
+  renderIdentity();
+  renderHome();
   renderProjects();
   renderHeader(workspace);
   renderMessages(workspace);
   renderPreview(workspace);
   renderActivity(workspace);
   renderCapabilities(workspace);
+  setActiveView(state.activeView, { persistState: false });
   syncComposerState();
 }
 
@@ -524,6 +714,75 @@ async function detectModelCapability() {
   renderModelCapability();
   renderHeader(activeWorkspace());
   renderActivity(activeWorkspace());
+}
+
+function setAuthMode(mode) {
+  authMode = mode === "register" ? "register" : "login";
+  elements.authDialogTitle.textContent = authMode === "register" ? "Create your workspace" : "Sign in to continue";
+  elements.authNameField.hidden = authMode !== "register";
+  elements.authForm.elements.name.required = authMode === "register";
+  elements.authForm.elements.password.autocomplete = authMode === "register" ? "new-password" : "current-password";
+  elements.authSubmitButton.textContent = authMode === "register" ? "Create account" : "Sign in";
+  $$("[data-auth-mode]").forEach((button) => button.classList.toggle("active", button.dataset.authMode === authMode));
+  elements.authError.hidden = true;
+}
+
+function openAuthDialog(mode = "login") {
+  setAuthMode(mode);
+  elements.authForm.reset();
+  elements.authDialog.showModal();
+  setTimeout(() => elements.authForm.elements[authMode === "register" ? "name" : "email"].focus(), 30);
+}
+
+async function activateAccount(user, cloudState = undefined) {
+  currentUser = user;
+  if (cloudState && typeof cloudState === "object") {
+    try {
+      state = parseImportedState(JSON.stringify(cloudState));
+      state = { ...state, workspaces: state.workspaces.map(ensureWorkspaceSourceFiles) };
+    } catch {
+      showToast("云端工作区格式异常，已保留本地副本");
+    }
+  } else {
+    const userCache = globalThis.localStorage?.getItem(`${STORAGE_KEY}:${user.id}`);
+    if (userCache) {
+      try {
+        state = parseImportedState(userCache);
+        state = { ...state, workspaces: state.workspaces.map(ensureWorkspaceSourceFiles) };
+      } catch {
+        state = initialState();
+      }
+    } else if (!hasActivatedAccount) {
+      state = anonymousState;
+    } else {
+      state = initialState();
+    }
+  }
+  hasActivatedAccount = true;
+  bootComplete = true;
+  elements.authGateway.hidden = true;
+  elements.appShell.hidden = false;
+  setSyncStatus(cloudState ? "Loaded from cloud" : "Saving to cloud", cloudState ? "saved" : "saving");
+  render();
+  await detectModelCapability();
+  if (!cloudState) scheduleCloudSave();
+}
+
+async function bootstrapAuth() {
+  try {
+    const session = await getSession();
+    if (!session.user) {
+      elements.authGateway.hidden = false;
+      elements.appShell.hidden = true;
+      return;
+    }
+    const cloudState = await loadCloudWorkspaceState();
+    await activateAccount(session.user, cloudState);
+  } catch (error) {
+    elements.authGateway.hidden = false;
+    elements.appShell.hidden = true;
+    showToast(`无法恢复登录状态：${error.message}`);
+  }
 }
 
 function setModelPlanning(active) {
@@ -572,9 +831,19 @@ async function runLiveAgent(workspace, stage) {
   replaceWorkspace(started);
   render();
   try {
+    const sharedContext = {
+      preview: started.preview,
+      sourceFiles: workspaceSourceFiles(started).slice(0, 5),
+      recentMessages: (started.messages || []).slice(-10),
+      clarificationAnswer: started.clarificationAnswer,
+      hasExistingApp: Boolean(started.hasBuiltArtifact),
+      artifactRevision: started.artifactRevision || 0,
+      previewVerification: started.previewVerification,
+      previewFeedback: started.previewFeedback
+    };
     const context = stage === "build"
-      ? { intent: started.intent, plan: started.runtimePlan, preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.hasBuiltArtifact), artifactRevision: started.artifactRevision || 0, previewVerification: started.previewVerification, previewFeedback: started.previewFeedback }
-      : { preview: started.preview, clarificationAnswer: started.clarificationAnswer, hasExistingApp: Boolean(started.hasBuiltArtifact), artifactRevision: started.artifactRevision || 0, previewVerification: started.previewVerification, previewFeedback: started.previewFeedback };
+      ? { ...sharedContext, intent: started.intent, plan: started.runtimePlan }
+      : sharedContext;
     const response = await fetch("./api/agent/run", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
@@ -656,12 +925,25 @@ function showNewProjectDialog() {
   setTimeout(() => elements.newProjectForm.elements.prompt.focus(), 50);
 }
 
+async function createAndPlanWorkspace({ title = "", prompt }) {
+  const workspace = createWorkspace({ title, prompt, mode: "auto" });
+  state.workspaces = [workspace, ...state.workspaces];
+  state.activeWorkspaceId = workspace.id;
+  state.activeView = "builder";
+  state.activePanel = "preview";
+  state.designMode = false;
+  persist();
+  render();
+  if (!(await runLiveAgent(workspace, "plan"))) showToast("计划已生成，请确认后开始构建");
+}
+
 function exportWorkspace() {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const workspace = activeWorkspace();
+  const blob = new Blob([JSON.stringify({ schemaVersion: 1, exportedAt: new Date().toISOString(), workspace }, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `atoms-demo-${activeWorkspace().id}.json`;
+  link.download = `atoms-demo-${workspace.id}.json`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast("工作区快照已导出");
@@ -727,6 +1009,7 @@ elements.projectList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-workspace-id]");
   if (!button) return;
   state.activeWorkspaceId = button.dataset.workspaceId;
+  state.activeView = "builder";
   state.designMode = false;
   persist();
   render();
@@ -740,26 +1023,152 @@ $("#restart-button").addEventListener("click", showNewProjectDialog);
 elements.newProjectForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(elements.newProjectForm);
-  const workspace = createWorkspace({ title: data.get("title"), prompt: data.get("prompt"), mode: "auto" });
-  state.workspaces = [workspace, ...state.workspaces];
-  state.activeWorkspaceId = workspace.id;
-  state.designMode = false;
-  persist();
   elements.newProjectDialog.close();
-  render();
-  if (!(await runLiveAgent(workspace, "plan"))) showToast("计划已生成，请确认后开始构建");
+  await createAndPlanWorkspace({ title: data.get("title"), prompt: data.get("prompt") });
 });
 
 $$('[data-close-dialog]').forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
+$$("[data-open-auth]").forEach((button) => button.addEventListener("click", () => openAuthDialog(button.dataset.openAuth)));
+$$("[data-auth-mode]").forEach((button) => button.addEventListener("click", () => setAuthMode(button.dataset.authMode)));
+elements.authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  elements.authError.hidden = true;
+  elements.authSubmitButton.disabled = true;
+  elements.authSubmitButton.textContent = authMode === "register" ? "Creating account…" : "Signing in…";
+  const data = new FormData(elements.authForm);
+  try {
+    const result = authMode === "register"
+      ? await registerAccount({ name: data.get("name"), email: data.get("email"), password: data.get("password") })
+      : await loginAccount({ email: data.get("email"), password: data.get("password") });
+    const cloudState = await loadCloudWorkspaceState();
+    elements.authDialog.close();
+    await activateAccount(result.user, cloudState);
+  } catch (error) {
+    elements.authError.textContent = error.message;
+    elements.authError.hidden = false;
+  } finally {
+    elements.authSubmitButton.disabled = false;
+    elements.authSubmitButton.textContent = authMode === "register" ? "Create account" : "Sign in";
+  }
+});
+$("#account-button").addEventListener("click", () => elements.accountDialog.showModal());
+$("#home-account-button").addEventListener("click", () => elements.accountDialog.showModal());
+$("#logout-button").addEventListener("click", async () => {
+  try { await logoutAccount(); } catch {}
+  currentUser = null;
+  bootComplete = false;
+  clearTimeout(cloudSaveTimer);
+  elements.accountDialog.close();
+  state = initialState();
+  elements.appShell.hidden = true;
+  elements.authGateway.hidden = false;
+  setAuthMode("login");
+  showToast("已安全退出，当前浏览器仍保留离线副本");
+});
+elements.homeComposer.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const prompt = elements.homePrompt.value.trim();
+  if (!prompt) return;
+  elements.homePrompt.value = "";
+  await createAndPlanWorkspace({ prompt });
+});
+$(".home-starters").addEventListener("click", (event) => {
+  const prompt = event.target.closest("[data-home-prompt]")?.dataset.homePrompt;
+  if (!prompt) return;
+  elements.homePrompt.value = prompt;
+  elements.homePrompt.focus();
+});
+elements.recentProjectGrid.addEventListener("click", (event) => {
+  const id = event.target.closest("[data-open-workspace]")?.dataset.openWorkspace;
+  if (!id) return;
+  state.activeWorkspaceId = id;
+  state.activeView = "builder";
+  persist();
+  render();
+});
+$("#home-new-project").addEventListener("click", () => {
+  elements.homePrompt.value = "";
+  elements.homePrompt.focus();
+});
 $$('[data-panel]').forEach((button) =>
   button.addEventListener("click", () => {
-    state.activePanel = state.activePanel === "code" ? "preview" : "code";
+    state.activePanel = button.dataset.panel === "code" ? "code" : "preview";
     if (state.activePanel === "preview") state.activeDesignTab = "visual";
     persist();
+    renderCodeWorkspace(activeWorkspace());
     syncViewerChrome();
-    showToast(state.activePanel === "code" ? "Generated code 已打开" : "返回可交互预览");
+    showToast(state.activePanel === "code" ? "Code workspace 已打开，可编辑并应用到 Preview" : "返回可交互 Preview");
   })
 );
+
+elements.codeFileList.addEventListener("click", (event) => {
+  const path = event.target.closest("[data-code-file]")?.dataset.codeFile;
+  if (!path) return;
+  if (codeDraft?.dirty && path !== codeDraft.path && !window.confirm("当前文件有未应用的修改，切换文件会放弃草稿。继续吗？")) return;
+  state.activeCodeFile = path;
+  codeDraft = null;
+  persist();
+  renderCodeWorkspace(activeWorkspace());
+});
+
+elements.codeEditor.addEventListener("input", () => {
+  if (!codeDraft) return;
+  codeDraft.content = elements.codeEditor.value;
+  codeDraft.dirty = codeDraft.content !== codeDraft.original;
+  elements.codeDirtyIndicator.hidden = !codeDraft.dirty;
+  elements.codeEditorStatus.textContent = codeDraft.dirty
+    ? "草稿已修改；Apply 会先校验，再创建一个新 revision。"
+    : "选左侧文件直接修改；应用前会校验，并自动创建新版本。";
+  renderCodeWorkspace(activeWorkspace());
+});
+
+$("#reset-code-button").addEventListener("click", () => {
+  if (!codeDraft) return;
+  codeDraft.content = codeDraft.original;
+  codeDraft.dirty = false;
+  elements.codeEditor.value = codeDraft.original;
+  renderCodeWorkspace(activeWorkspace());
+  showToast("代码草稿已恢复为当前版本");
+});
+
+$("#apply-code-button").addEventListener("click", () => {
+  if (!codeDraft?.dirty) return showToast("当前代码没有未应用的修改");
+  const result = applyCodeDraft(activeWorkspace(), {
+    files: [{ path: codeDraft.path, language: fileLabel({ path: codeDraft.path }).toLowerCase(), content: codeDraft.content }]
+  }, { source: "manual-code", now: new Date().toISOString() });
+  if (!result.ok) {
+    elements.codeEditorStatus.textContent = result.errors.join(" · ");
+    elements.codeEditorStatus.dataset.status = "error";
+    showToast(`代码未应用：${result.errors[0]}`);
+    return;
+  }
+  replaceWorkspace(result.workspace);
+  codeDraft = null;
+  render();
+  const verification = verifyAndPersistPreview("code-editor");
+  showToast(verification.passed ? `代码已应用并创建 revision ${result.revision}` : "代码已保存，但 Preview 验证未通过");
+});
+
+$("#ask-agent-code-button").addEventListener("click", () => {
+  const path = codeDraft?.path || state.activeCodeFile || "src/App.jsx";
+  elements.promptInput.value = `请检查并修改 ${path}，保持现有功能和视觉，只修复当前代码与 Preview 不一致的问题。`;
+  state.activePanel = "preview";
+  syncComposerState();
+  syncViewerChrome();
+  elements.promptInput.focus();
+  showToast("已把代码修复任务带回 Agent 对话");
+});
+
+$("#rollback-version-button").addEventListener("click", () => {
+  const targetRevision = Number(elements.codeVersionSelect.value);
+  if (!Number.isFinite(targetRevision) || targetRevision === activeWorkspace().artifactRevision) return showToast("请选择一个更早的版本");
+  const restored = rollbackWorkspaceVersion(activeWorkspace(), targetRevision);
+  replaceWorkspace(restored);
+  codeDraft = null;
+  render();
+  verifyAndPersistPreview("version-rollback");
+  showToast(`已从 revision ${targetRevision} 恢复，并创建新的 revision ${restored.artifactRevision}`);
+});
 $("#activity-toggle").addEventListener("click", () => {
   const open = elements.activityPanel.classList.toggle("open");
   $("#activity-toggle").classList.toggle("active", open);
@@ -987,12 +1396,18 @@ elements.attachmentInput.addEventListener("change", async () => {
   elements.attachmentSummary.textContent = attachments.length ? `${attachments.length} 个文件已加入上下文` : "添加文本上下文";
   showToast(attachments.length ? "附件会参与意图识别与计划" : "未选择附件");
 });
-$$('[data-nav]').forEach((button) => button.addEventListener("click", () => {
-  if (button.dataset.nav === "home") return showNewProjectDialog();
+$$('[data-nav]').forEach((button) => button.addEventListener("click", (event) => {
+  event.preventDefault();
+  if (button.dataset.nav === "home") {
+    elements.sidebar.classList.remove("open");
+    elements.sidebarScrim.classList.remove("visible");
+    return setActiveView("home");
+  }
   if (button.dataset.nav === "resources") {
     window.open("https://help.atoms.dev/zh-CN/", "_blank", "noopener,noreferrer");
     return;
   }
+  setActiveView("builder");
   elements.projectList.querySelector(".project-item")?.focus();
 }));
 $("#export-button").addEventListener("click", exportWorkspace);
@@ -1065,7 +1480,5 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-render();
 renderModelCapability();
-if (activeWorkspace().phase === "building") startBuildLoop(activeWorkspace().id);
-detectModelCapability();
+bootstrapAuth();

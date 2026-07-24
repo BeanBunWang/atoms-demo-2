@@ -133,7 +133,7 @@ export async function requestDeepSeekPlan({ prompt, context, env, fetchImpl = fe
   return { result: parseModelContent(completion.content), model: completion.model, usage: completion.usage };
 }
 
-export async function requestDeepSeekJson({ messages, env, fetchImpl = fetch, maxTokens = 2200 }) {
+export async function requestDeepSeekJson({ messages, env, fetchImpl = fetch, maxTokens = 3600 }) {
   const completion = await requestCompletion({ messages, env, fetchImpl, maxTokens });
   return parseJsonContent(completion.content);
 }

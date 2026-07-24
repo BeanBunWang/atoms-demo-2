@@ -3,6 +3,16 @@ import assert from "node:assert/strict";
 
 import { buildDeepSeekRequest, createAppServer, normalizeModelResult, parseEnv, requestDeepSeekPlan, resolveModel } from "../server.mjs";
 
+async function createAuthCookie(baseUrl, email = `server-${crypto.randomUUID()}@example.com`) {
+  const response = await fetch(`${baseUrl}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password: "correct-password" })
+  });
+  assert.equal(response.status, 201);
+  return response.headers.get("set-cookie").split(";")[0];
+}
+
 test(".env 解析不会改变等号后的内容", () => {
   assert.deepEqual(parseEnv("DEEPSEEK_API_KEY=abc=123\nDEEPSEEK_MODEL='deepseek-v4-flash'\n# note"), {
     DEEPSEEK_API_KEY: "abc=123",
@@ -77,9 +87,11 @@ test("无效 JSON 返回稳定的客户端错误", async (t) => {
   const server = createAppServer({ env: { DEEPSEEK_API_KEY: "hidden" } });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => server.close());
-  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/agent/run`, {
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const cookie = await createAuthCookie(baseUrl);
+  const response = await fetch(`${baseUrl}/api/agent/run`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Cookie: cookie },
     body: "{broken"
   });
   assert.equal(response.status, 400);
@@ -102,8 +114,10 @@ test("Agent endpoint 以 NDJSON 输出意图、计划与审批事件", async (t)
   const server = createAppServer({ env: { DEEPSEEK_API_KEY: "hidden" }, fetchImpl: fakeFetch });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => server.close());
-  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/agent/run`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage: "plan", prompt: "做一个宠物疫苗提醒应用" })
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const cookie = await createAuthCookie(baseUrl);
+  const response = await fetch(`${baseUrl}/api/agent/run`, {
+    method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie }, body: JSON.stringify({ stage: "plan", prompt: "做一个宠物疫苗提醒应用" })
   });
   assert.match(response.headers.get("content-type"), /application\/x-ndjson/);
   const events = (await response.text()).trim().split("\n").map(JSON.parse);

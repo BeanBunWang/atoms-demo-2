@@ -30,7 +30,12 @@ export async function runAgentRuntime({ stage, prompt, context = {}, capabilitie
       ? `${prompt}\n用户对澄清问题的回答：${context.clarificationAnswer}`
       : prompt;
     send("phase.started", { phase: "planning", agent: "mike", tool: "task_router", message: "选择专家并生成依赖顺序" });
-    plan = normalizePlan(await complete(planPrompt({ prompt: resolvedPrompt, intent, capabilities, context })), intent);
+    try {
+      plan = normalizePlan(await complete(planPrompt({ prompt: resolvedPrompt, intent, capabilities, context })), intent);
+    } catch {
+      plan = normalizePlan(null, intent);
+      send("runtime.fallback", { phase: "planning", message: "计划模型输出不完整，已使用确定性执行图继续" });
+    }
     send("plan.created", { phase: "planning", agent: "mike", plan, message: `已路由 ${new Set(plan.steps.map((step) => step.agent)).size} 位专家，共 ${plan.steps.length} 步` });
     send("approval.required", { phase: "approval", agent: "mike", message: "计划会改变产品范围，等待批准后再执行" });
     send("run.completed", { stage: "plan", status: "awaiting_approval", intent, plan });
@@ -48,14 +53,36 @@ export async function runAgentRuntime({ stage, prompt, context = {}, capabilitie
   }
   send("artifact.generating", { phase: "execution", agent: "alex", tool: "compose_app", message: "按话题生成页面结构、真实文案与示例数据" });
   const baseRevision = Math.max(0, Number(context.artifactRevision) || 0);
-  let artifact = normalizeArtifact(await complete(artifactPrompt({ prompt, intent, plan, capabilities, previousPreview: context.preview, toolOutputs, baseRevision })), intent, { previousPreview: context.preview, baseRevision });
+  let artifact;
+  try {
+    artifact = normalizeArtifact(await complete(artifactPrompt({
+      prompt,
+      intent,
+      plan,
+      capabilities,
+      previousPreview: context.preview,
+      previousSourceFiles: context.sourceFiles,
+      toolOutputs,
+      baseRevision
+    })), intent, { previousPreview: context.preview, baseRevision });
+  } catch {
+    artifact = createDeterministicArtifactUpdate(intent, { previousPreview: context.preview, baseRevision });
+    send("runtime.fallback", {
+      phase: "execution",
+      message: `模型代码输出不完整，已生成可操作的${context.preview ? "增量补丁" : "安全产物"}并继续验证`
+    });
+  }
   send("artifact.created", { phase: "execution", agent: "alex", artifact, message: `已生成 ${artifact.preview.template} 布局和 ${artifact.preview.sections.length} 个话题模块` });
 
   send("verification.started", { phase: "verification", agent: "mike", tool: "validate_artifact", message: "检查结构、话题关联、布局差异和交付文件" });
   let verification = validateArtifact(artifact, intent, { previousPreview: context.preview, baseRevision });
   if (!verification.passed) {
     send("replan.created", { phase: "replanning", agent: "mike", issues: verification.issues, message: `发现 ${verification.issues.length} 个问题，触发一次修复` });
-    artifact = normalizeArtifact(await complete(repairPrompt({ prompt, intent, plan, artifact, issues: verification.issues })), intent, { previousPreview: context.preview, baseRevision });
+    try {
+      artifact = normalizeArtifact(await complete(repairPrompt({ prompt, intent, plan, artifact, issues: verification.issues })), intent, { previousPreview: context.preview, baseRevision });
+    } catch {
+      send("runtime.fallback", { phase: "replanning", message: "模型修复结果不完整，已转为确定性修复" });
+    }
     verification = validateArtifact(artifact, intent, { previousPreview: context.preview, baseRevision });
   }
   if (!verification.passed) {

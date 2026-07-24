@@ -9,9 +9,11 @@ import {
   approvePlan,
   buildProgress,
   createWorkspace,
+  ensureWorkspaceSourceFiles,
   isComposerEmpty,
   nextBuildStep,
   publishWorkspace,
+  rollbackWorkspaceVersion,
   submitPrompt,
   updatePreview
 } from "../site/js/planner.js";
@@ -29,6 +31,11 @@ test("新工作区包含 Atoms 应用构建链路", () => {
   assert.equal(workspace.agents[0].key, "mike");
   assert.ok(workspace.plan.length >= 4);
   assert.ok(workspace.files.some((file) => file.path === "src/App.jsx"));
+  assert.ok(workspace.sourceFiles.some((file) => file.path === "src/App.jsx" && file.language === "jsx" && file.content.includes("ATOMS_CONFIG_START")));
+  assert.ok(workspace.sourceFiles.some((file) => file.path === "src/styles.css"));
+  assert.ok(workspace.sourceFiles.some((file) => file.path === "src/app.config.json"));
+  assert.deepEqual(workspace.versions[0].revision, 0);
+  assert.ok(workspace.versions[0].sourceFiles.length >= 3);
 });
 
 test("审批计划后才允许智能体进入构建", () => {
@@ -43,6 +50,8 @@ test("审批计划后才允许智能体进入构建", () => {
   assert.equal(workspace.phase, "ready");
   assert.equal(buildProgress(workspace), 100);
   assert.equal(workspace.artifactRevision, 1);
+  assert.equal(workspace.versions.at(-1).revision, 1);
+  assert.equal(workspace.versions.at(-1).source, "local-fallback");
 });
 
 test("追加指令会生成新的计划审批轮次", () => {
@@ -96,6 +105,8 @@ test("真实模型结果会更新计划、预览和代码", () => {
 
   assert.equal(updated.modelSource, "deepseek-v4-flash");
   assert.equal(updated.preview.title, "城市拾光");
+  assert.equal(updated.artifactRevision, 1);
+  assert.equal(updated.versions.at(-1).source, "deepseek-v4-flash");
   assert.match(updated.code, /城市拾光/);
   assert.match(updated.messages.at(-1).text, /聚焦/);
 });
@@ -109,7 +120,28 @@ test("可视编辑和发布更新交付状态", () => {
 
   assert.equal(workspace.preview.title, "微习惯");
   assert.equal(workspace.preview.accent, "#7c5cff");
+  assert.equal(workspace.artifactRevision, 2);
+  assert.equal(workspace.versions.at(-1).source, "visual-edit");
   assert.equal(workspace.published, true);
+});
+
+test("sourceFiles 初始化和版本回滚会保留源码快照并产生新 revision", () => {
+  let workspace = createWorkspace({ title: "版本应用", prompt: "做一个任务应用", mode: "auto" });
+  delete workspace.sourceFiles;
+  delete workspace.versions;
+  workspace = ensureWorkspaceSourceFiles(workspace, "2026-01-01T00:00:00.000Z");
+  assert.equal(workspace.artifactRevision, 0);
+  assert.equal(workspace.versions[0].revision, 0);
+  assert.ok(workspace.sourceFiles.every((file) => file.path && file.language && typeof file.content === "string"));
+
+  workspace = updatePreview(workspace, { title: "第二版" }, "2026-01-01T00:00:01.000Z");
+  workspace = updatePreview(workspace, { title: "第三版" }, "2026-01-01T00:00:02.000Z");
+  assert.equal(workspace.artifactRevision, 2);
+  const rolledBack = rollbackWorkspaceVersion(workspace, 0, "2026-01-01T00:00:03.000Z");
+  assert.equal(rolledBack.preview.title, "版本应用");
+  assert.equal(rolledBack.artifactRevision, 3);
+  assert.equal(rolledBack.versions.at(-1).source, "rollback:0");
+  assert.ok(rolledBack.versions.at(-1).sourceFiles.find((file) => file.path === "src/App.jsx").content.includes("ATOMS_CONFIG_START"));
 });
 
 test("输入空态严格区分空白与有效内容", () => {
@@ -123,11 +155,11 @@ test("本地状态可以安全加载与导入", () => {
   const imported = parseImportedState(JSON.stringify(state));
   assert.equal(isValidState(imported), true);
   assert.equal(imported.activeWorkspaceId, "workspace-demo");
-  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v5");
+  assert.equal(STORAGE_KEY, "atoms-demo-workspace-v6");
   assert.throws(() => parseImportedState('{"version":1}'), /有效/);
 
   const brokenStorage = { getItem: () => "{broken" };
-  assert.equal(loadState(brokenStorage).version, 5);
+  assert.equal(loadState(brokenStorage).version, 6);
 });
 
 test("旧工作区会迁移到带 revision 和稳定 section ID 的产物", () => {

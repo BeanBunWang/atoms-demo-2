@@ -9,7 +9,7 @@
     <link rel="icon" href="./assets/atoms-mark.svg" type="image/svg+xml" />
     <link rel="alternate icon" href="./favicon.ico" type="image/png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./styles.css?v=13" />
+    <link rel="stylesheet" href="./styles.css?v=14" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">跳到主要内容</a>
@@ -18,9 +18,45 @@
       <a href="https://github.com/BeanBunWang/atoms-demo-2" target="_blank" rel="noreferrer">查看源码 ↗</a>
     </div>
 
-    <div class="app-shell">
+    <section class="auth-gateway" id="auth-gateway" aria-label="Atoms 首页">
+      <nav class="landing-nav">
+        <a class="landing-brand" href="#" aria-label="Atoms 首页"><img src="./assets/atoms-mark.svg" alt="" /><strong>Atoms</strong><span>Demo</span></a>
+        <div><a href="https://github.com/BeanBunWang/atoms-demo-2" target="_blank" rel="noreferrer">GitHub</a><button class="landing-signin" type="button" data-open-auth="login">Sign in</button></div>
+      </nav>
+      <main class="landing-main">
+        <section class="landing-copy">
+          <span class="landing-kicker"><i></i> Agent-native app builder</span>
+          <h1>从一个想法，<br />到可运行的<br />产品。</h1>
+          <p>Atoms 会理解意图、制定计划、调用工具、生成代码，并在每次修改后验证 Preview。你的项目、对话和版本会安全保存在账号中。</p>
+          <div class="landing-actions">
+            <button class="landing-primary" type="button" data-open-auth="register">Start building <span>→</span></button>
+            <button class="landing-secondary" type="button" data-open-auth="login">Continue a project</button>
+          </div>
+          <div class="landing-proof"><span><b>01</b> Intent routing</span><span><b>02</b> Versioned code</span><span><b>03</b> Verified Preview</span></div>
+        </section>
+        <section class="landing-workbench" aria-label="产品能力预览">
+          <header><span><i></i><i></i><i></i></span><b>fitness-coach / revision 4</b><small>Preview verified</small></header>
+          <div class="landing-window">
+            <aside><img src="./assets/atoms-mark.svg" alt="" /><span></span><span></span><span></span></aside>
+            <div class="landing-chat">
+              <small>AGENT RUN</small>
+              <h2>增加训练完成率趋势</h2>
+              <ol><li class="done"><span>1</span>识别为增量修改</li><li class="done"><span>2</span>更新数据组件与代码</li><li class="active"><span>3</span>验证交互与 Preview</li></ol>
+              <div class="landing-code"><code>const completion = workouts.filter(<br />&nbsp;&nbsp;item =&gt; item.done<br />).length / workouts.length;</code></div>
+            </div>
+            <div class="landing-preview-card">
+              <span>WEEKLY COMPLETION</span><strong>82%</strong><i>+12% this week</i>
+              <div class="landing-bars"><b></b><b></b><b></b><b></b><b></b><b></b><b></b></div>
+            </div>
+          </div>
+        </section>
+      </main>
+      <footer class="landing-footer"><span>DeepSeek Flash · server-side keys</span><span>Cloudflare Workers · account-scoped persistence</span></footer>
+    </section>
+
+    <div class="app-shell" id="app-shell" hidden>
       <aside class="sidebar" id="sidebar" aria-label="主导航">
-        <a class="brand" href="#" aria-label="Atoms Demo 首页">
+        <a class="brand" href="#" aria-label="Atoms Demo 首页" data-nav="home">
           <img src="./assets/atoms-mark.svg" alt="" />
           <strong>Atoms</strong>
           <span>Demo</span>
@@ -40,9 +76,9 @@
         </section>
 
         <div class="sidebar-footer">
-          <div class="usage-card"><span>Free workspace</span><strong>Local only</strong><i><b></b></i></div>
-          <button class="user-button" id="export-button" type="button" title="导出当前工作区">
-            <span class="user-avatar">TW</span><span><strong>Thorn Wang</strong><small>Export workspace</small></span><b>•••</b>
+          <div class="usage-card"><span>Free workspace</span><strong id="sync-status">Connecting…</strong><i><b></b></i></div>
+          <button class="user-button" id="account-button" type="button" title="账号与工作区">
+            <span class="user-avatar" id="user-avatar">U</span><span><strong id="user-name">User</strong><small id="user-email">Signed in</small></span><b>•••</b>
           </button>
         </div>
       </aside>
@@ -50,12 +86,40 @@
       <div class="sidebar-scrim" id="sidebar-scrim"></div>
 
       <div class="workspace">
-        <header class="topbar">
+        <section class="home-view" id="home-view" hidden>
+          <header class="home-header">
+            <a class="landing-brand" href="#" data-nav="home"><img src="./assets/atoms-mark.svg" alt="" /><strong>Atoms</strong><span>Workspace</span></a>
+            <button class="home-account" id="home-account-button" type="button"><span class="user-avatar" id="home-user-avatar">U</span><span id="home-user-name">User</span></button>
+          </header>
+          <main class="home-content">
+            <section class="home-hero">
+              <span class="home-kicker">BUILD WITH AN AGENT TEAM</span>
+              <h1>今天想创造什么？</h1>
+              <p>直接描述产品。Agent 会识别意图、规划、生成代码，并把结果交给 Preview 验证。</p>
+              <form class="home-composer" id="home-composer">
+                <label class="sr-only" for="home-prompt">描述你想构建的产品</label>
+                <textarea id="home-prompt" rows="4" maxlength="500" placeholder="例如：为自由职业者做一个可以追踪收入和发票状态的仪表盘"></textarea>
+                <footer><span>✦ Auto routing · DeepSeek Flash</span><button type="submit" aria-label="开始创建">Build <b>↑</b></button></footer>
+              </form>
+              <div class="home-starters" aria-label="快速开始">
+                <button type="button" data-home-prompt="做一个支持历史记录和键盘输入的计算器">Calculator</button>
+                <button type="button" data-home-prompt="做一个可暂停、计分和重新开始的贪吃蛇游戏">Snake game</button>
+                <button type="button" data-home-prompt="为自由职业者做一个收入和发票追踪仪表盘">Income dashboard</button>
+              </div>
+            </section>
+            <section class="recent-projects">
+              <header><div><span>YOUR WORK</span><h2>最近项目</h2></div><button id="home-new-project" type="button">New project ＋</button></header>
+              <div class="recent-project-grid" id="recent-project-grid"></div>
+            </section>
+          </main>
+        </section>
+
+        <header class="topbar" id="topbar">
           <div class="topbar-start">
             <button class="mobile-menu" id="mobile-menu" type="button" aria-label="打开导航">☰</button>
             <div class="project-identity">
               <span class="project-symbol">W</span>
-              <div><h1 id="workspace-title">周末漫游</h1><p><span id="workspace-status">Ready</span> · Autosaved locally</p></div>
+              <div><h1 id="workspace-title">周末漫游</h1><p><span id="workspace-status">Ready</span> · Autosaved to cloud</p></div>
             </div>
           </div>
           <div class="topbar-actions">
@@ -98,7 +162,10 @@
 
           <section class="viewer-panel" aria-label="应用查看器">
             <header class="viewer-toolbar">
-              <div class="app-viewer-pill">▣ App Viewer</div>
+              <div class="viewer-mode-tabs" role="tablist" aria-label="工作区视图">
+                <button type="button" data-panel="preview" class="active" role="tab" aria-selected="true">▣ Preview</button>
+                <button type="button" data-panel="code" role="tab" aria-selected="false">&lt;/&gt; Code</button>
+              </div>
               <div class="viewer-tools">
                 <button class="tool-button" id="verify-preview-button" type="button" aria-label="验证当前预览" title="验证 Preview">Verify</button>
                 <button class="tool-button" id="refresh-button" type="button" aria-label="重新渲染预览" title="重新渲染预览">↻</button>
@@ -109,7 +176,6 @@
                 </div>
                 <button class="design-button" id="design-button" type="button" aria-pressed="false"><span>✦</span> Design</button>
                 <button class="tool-button console-button" id="activity-toggle" type="button" aria-label="打开 Console" aria-expanded="false">Console</button>
-                <button class="tool-button" type="button" data-panel="code" aria-label="查看代码" aria-pressed="false">&lt;/&gt;</button>
                 <button class="tool-button" id="open-preview-button" type="button" aria-label="新窗口打开完整预览" title="新窗口预览">↗</button>
               </div>
             </header>
@@ -127,7 +193,7 @@
               <section class="design-pane visual-editor-pane" id="visual-editor-pane" data-design-pane="visual">
               <div class="app-frame desktop" id="app-frame">
                 <div class="generated-app" id="generated-app">
-                  <header class="generated-nav"><button class="preview-brand-button" type="button" data-preview-command="home"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></button><nav><button id="preview-nav-primary" type="button" data-preview-command="primary">发现</button><button id="preview-nav-secondary" type="button" data-preview-command="secondary">收藏</button><button id="preview-avatar" type="button" data-preview-command="profile" aria-label="打开预览账户菜单" aria-expanded="false">TW</button><div class="preview-profile-menu" id="preview-profile-menu" hidden><strong>Demo workspace</strong><span>本地预览身份 · TW</span><button type="button" data-preview-command="runtime">查看运行状态</button><button type="button" data-preview-command="reset">重置演示操作</button></div></nav></header>
+                  <header class="generated-nav"><button class="preview-brand-button" type="button" data-preview-command="home"><span id="preview-logo">W</span><b id="preview-brand">周末漫游</b></button><nav><button id="preview-nav-primary" type="button" data-preview-command="primary">发现</button><button id="preview-nav-secondary" type="button" data-preview-command="secondary">收藏</button><button id="preview-avatar" type="button" data-preview-command="profile" aria-label="打开预览账户菜单" aria-expanded="false">TW</button><div class="preview-profile-menu" id="preview-profile-menu" hidden><strong id="preview-profile-name">Demo workspace</strong><span id="preview-profile-email">预览身份</span><button type="button" data-preview-command="runtime">查看运行状态</button><button type="button" data-preview-command="reset">重置演示操作</button></div></nav></header>
                   <main class="generated-main" id="generated-main">
                     <section class="generated-hero editable-target" data-edit-target="hero">
                       <p id="preview-eyebrow">MAKE SPACE FOR THE WEEKEND</p>
@@ -139,7 +205,28 @@
                   </main>
                 </div>
               </div>
-              <pre class="code-view" id="code-view" hidden><code id="code-content"></code></pre>
+              <section class="code-workspace" id="code-workspace" hidden aria-label="代码工作区">
+                <aside class="code-files">
+                  <header><span>FILES</span><b id="code-file-count">0</b></header>
+                  <nav id="code-file-list" aria-label="生成文件"></nav>
+                  <footer><span><i></i> Generated artifact</span><small id="code-revision-label">revision 0</small></footer>
+                </aside>
+                <div class="code-editor-shell">
+                  <header class="code-editor-header">
+                    <div><b id="code-active-path">src/App.jsx</b><span id="code-language">JSX</span><i id="code-dirty-indicator" hidden>Unsaved</i></div>
+                    <div>
+                      <label class="version-picker">Version<select id="code-version-select" aria-label="选择历史版本"></select></label>
+                      <button id="rollback-version-button" type="button">Rollback</button>
+                    </div>
+                  </header>
+                  <textarea id="code-editor" class="code-editor" spellcheck="false" aria-label="编辑生成代码"></textarea>
+                  <footer class="code-editor-footer">
+                    <span id="code-editor-status">选左侧文件直接修改；应用前会校验，并自动创建新版本。</span>
+                    <div><button id="reset-code-button" class="quiet-button" type="button">Reset</button><button id="ask-agent-code-button" class="quiet-button" type="button">Ask Agent</button><button id="apply-code-button" class="approve-button" type="button">Apply to Preview</button></div>
+                  </footer>
+                </div>
+              </section>
+              <pre class="code-view" id="code-view" hidden aria-hidden="true"><code id="code-content"></code></pre>
               </section>
               <section class="design-pane design-workbench" id="library-pane" data-design-pane="library" hidden>
                 <header><span>COMPONENT LIBRARY</span><h2>组合当前应用</h2><p>添加受控组件，结果会立即同步到 Preview 与 Code。</p></header>
@@ -196,7 +283,26 @@
       <p class="dialog-note">此操作只模拟发布状态，不会创建真实云资源。</p>
     </dialog>
 
+    <dialog class="dialog-card auth-dialog" id="auth-dialog">
+      <div class="dialog-header"><div><span>WELCOME TO ATOMS</span><h2 id="auth-dialog-title">Sign in to continue</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="auth-mode-tabs" role="tablist"><button type="button" data-auth-mode="login" class="active">Sign in</button><button type="button" data-auth-mode="register">Create account</button></div>
+      <form id="auth-form">
+        <label id="auth-name-field" hidden>Name<input name="name" autocomplete="name" maxlength="60" placeholder="Your name" /></label>
+        <label>Email<input name="email" type="email" autocomplete="email" maxlength="160" required placeholder="you@example.com" /></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required placeholder="At least 8 characters" /></label>
+        <p class="auth-error" id="auth-error" role="alert" hidden></p>
+        <button class="approve-button full" id="auth-submit-button" type="submit">Sign in</button>
+        <p class="dialog-note">账号用于保存项目、完整对话和产物版本。密码仅以加盐哈希保存。</p>
+      </form>
+    </dialog>
+
+    <dialog class="dialog-card account-dialog" id="account-dialog">
+      <div class="dialog-header"><div><span>YOUR ACCOUNT</span><h2 id="account-dialog-name">Account</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="account-summary"><span class="user-avatar" id="account-avatar">U</span><div><strong id="account-name">User</strong><small id="account-email">email@example.com</small></div></div>
+      <div class="account-actions"><button id="export-button" type="button">Export current project</button><button id="logout-button" class="danger-button" type="button">Sign out</button></div>
+    </dialog>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="./js/app.js?v=13"></script>
+    <script type="module" src="./js/app.js?v=14"></script>
   </body>
 </html>

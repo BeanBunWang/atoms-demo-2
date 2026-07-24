@@ -4,6 +4,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runAgentRuntime } from "./agent/runtime.mjs";
 import {
+  MAX_WORKSPACE_BYTES,
+  clearSessionCookie,
+  createAuthService,
+  createMemoryDataStore,
+  createSessionCookie,
+  getSessionToken
+} from "./backend/auth.mjs";
+import {
   buildDeepSeekRequest,
   cleanText,
   normalizeModelResult,
@@ -64,21 +72,24 @@ export async function loadEnvironment(env = process.env, envPath = path.join(PRO
   return { ...fileValues, ...env };
 }
 
-function sendJson(response, statusCode, payload) {
+function sendJson(response, statusCode, payload, headers = {}) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
-    "X-Content-Type-Options": "nosniff"
+    "X-Content-Type-Options": "nosniff",
+    ...headers
   });
   response.end(JSON.stringify(payload));
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, maxBytes = MAX_BODY_BYTES) {
+  const declaredLength = Number(request.headers["content-length"] || 0);
+  if (declaredLength > maxBytes) throw Object.assign(new Error("请求内容过大"), { status: 413 });
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw Object.assign(new Error("请求内容过大"), { status: 413 });
+    if (size > maxBytes) throw Object.assign(new Error("请求内容过大"), { status: 413 });
     chunks.push(chunk);
   }
   try {
@@ -86,6 +97,37 @@ async function readJsonBody(request) {
   } catch {
     throw Object.assign(new Error("请求 JSON 无效"), { status: 400 });
   }
+}
+
+async function handleAuthRoute({ request, response, method, pathname, auth }) {
+  if (method === "POST" && pathname === "/api/auth/register") {
+    const result = await auth.register(await readJsonBody(request));
+    return sendJson(response, 201, { user: result.user }, { "Set-Cookie": createSessionCookie(result.session.token) });
+  }
+  if (method === "POST" && pathname === "/api/auth/login") {
+    const result = await auth.login(await readJsonBody(request));
+    return sendJson(response, 200, { user: result.user }, { "Set-Cookie": createSessionCookie(result.session.token) });
+  }
+  if (method === "POST" && pathname === "/api/auth/logout") {
+    await auth.logout(getSessionToken(request));
+    return sendJson(response, 200, { ok: true }, { "Set-Cookie": clearSessionCookie() });
+  }
+  if (method === "GET" && pathname === "/api/auth/session") {
+    const session = await auth.getSession(getSessionToken(request));
+    return sendJson(response, 200, { user: session?.user || null });
+  }
+  return null;
+}
+
+async function handleWorkspaceRoute({ request, response, method, pathname, auth }) {
+  if (pathname !== "/api/workspaces") return null;
+  const user = await auth.requireUser(request);
+  if (method === "GET") return sendJson(response, 200, await auth.getWorkspaceState(user.id));
+  if (method === "PUT") {
+    const state = await readJsonBody(request, MAX_WORKSPACE_BYTES);
+    return sendJson(response, 200, await auth.putWorkspaceState(user.id, state));
+  }
+  return sendJson(response, 405, { error: "Method not allowed" });
 }
 
 async function serveStatic(requestPath, response) {
@@ -111,6 +153,7 @@ async function serveStatic(requestPath, response) {
 
 export function createAppServer({ env, fetchImpl = fetch } = {}) {
   const runtimeEnv = env || process.env;
+  const auth = createAuthService(runtimeEnv.ATOMS_DATA || createMemoryDataStore());
   return http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
     try {
@@ -120,7 +163,12 @@ export function createAppServer({ env, fetchImpl = fetch } = {}) {
           model: resolveModel(runtimeEnv)
         });
       }
+      const authResponse = await handleAuthRoute({ request, response, method: request.method, pathname: url.pathname, auth });
+      if (authResponse !== null) return authResponse;
+      const workspaceResponse = await handleWorkspaceRoute({ request, response, method: request.method, pathname: url.pathname, auth });
+      if (workspaceResponse !== null) return workspaceResponse;
       if (request.method === "POST" && url.pathname === "/api/agent/plan") {
+        await auth.requireUser(request);
         const body = await readJsonBody(request);
         const prompt = cleanText(body.prompt, "", 500);
         if (!prompt) return sendJson(response, 400, { error: "请输入应用需求" });
@@ -128,6 +176,7 @@ export function createAppServer({ env, fetchImpl = fetch } = {}) {
         return sendJson(response, 200, completion);
       }
       if (request.method === "POST" && url.pathname === "/api/agent/run") {
+        await auth.requireUser(request);
         const body = await readJsonBody(request);
         const prompt = cleanText(body.prompt, "", 800);
         if (!prompt) return sendJson(response, 400, { error: "请输入应用需求" });
