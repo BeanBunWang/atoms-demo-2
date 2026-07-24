@@ -232,7 +232,7 @@ export function createWorker({ fetchImpl = fetch } = {}) {
   return {
     async fetch(request, env, executionContext) {
       const url = new URL(request.url);
-      const auth = createAuthService(env.ATOMS_DATA || memoryDataStore);
+      const auth = createAuthService(env.ATOMS_DATA || memoryDataStore, { passwordPepper: env.AUTH_PEPPER });
       try {
         if (request.method === "GET" && url.pathname === "/api/health") {
           return jsonResponse({ realModel: Boolean(env.DEEPSEEK_API_KEY?.trim()), model: resolveModel(env) });

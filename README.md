@@ -22,7 +22,7 @@ npm start
 
 打开 <http://127.0.0.1:4173>。模型默认固定为 `deepseek-v4-flash`；`.env` 已被 Git 忽略，API Key 只在服务端读取。
 
-本地 Node 服务使用进程内账号存储，适合开发和测试；Cloudflare 部署通过 KV 保存账号、会话、项目、对话、源码和版本。
+本地 Node 服务使用进程内账号存储，适合开发和测试；Cloudflare 部署通过 KV 保存账号、会话、项目、对话、源码和版本。线上账号校验还需要独立的 `AUTH_PEPPER` Secret。
 
 没有密钥时也可运行确定性降级版本：
 
@@ -47,7 +47,7 @@ python3 -m http.server 4173 -d site
 - 增量修改使用 `baseRevision -> patch -> verify -> commit`；过期或验证失败的候选产物不会覆盖上一个可用版本
 - Preview 可手动验证 schema、Code 同步和实际 DOM；失败项可通过 `Fix with Agent` 回灌修复链路
 - 支持附件上下文、多项目与历史对话保存、云端同步、JSON 导出、分享和发布状态
-- Cloudflare Worker 提供 HttpOnly 会话、PBKDF2 密码散列、KV 持久化、同源校验、请求上限、上下文白名单和每 IP 限流
+- Cloudflare Worker 提供 HttpOnly 会话、随机盐 + 服务端 pepper 的密码校验、KV 持久化、同源校验、请求上限、上下文白名单和每 IP 限流
 
 > App Viewer 与完整预览复用安全 UI schema 和领域交互 runtime，不执行模型生成的任意代码；Publish 仍是演示状态，不会创建真实云资源。
 
@@ -68,6 +68,7 @@ npx wrangler@4.36.0 login
 npx wrangler@4.36.0 kv namespace create ATOMS_DATA
 # 将返回的 namespace id 配置为 wrangler.jsonc 中的 ATOMS_DATA binding
 npx wrangler@4.36.0 secret put DEEPSEEK_API_KEY
+npx wrangler@4.36.0 secret put AUTH_PEPPER
 npm run deploy:cloudflare
 ```
 

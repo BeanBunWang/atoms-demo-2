@@ -1,18 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createMemoryDataStore } from "../backend/auth.mjs";
+import { createMemoryDataStore, hashPassword, verifyPassword } from "../backend/auth.mjs";
 import { createWorker } from "../worker.mjs";
 
 function testEnv() {
   return {
     DEEPSEEK_API_KEY: "server-secret",
     DEEPSEEK_MODEL: "deepseek-v4-flash",
+    AUTH_PEPPER: "test-only-auth-pepper-with-enough-entropy",
     ASSETS: { fetch: async () => new Response("asset") },
     AGENT_RATE_LIMITER: { limit: async () => ({ success: true }) },
     ATOMS_DATA: createMemoryDataStore()
   };
 }
+
+test("Cloudflare 密码校验使用带随机盐的服务端 pepper HMAC", async () => {
+  const pepper = "test-only-auth-pepper-with-enough-entropy";
+  const first = await hashPassword("correct-password", { pepper });
+  const second = await hashPassword("correct-password", { pepper });
+  assert.match(first, /^hmac-sha256:/);
+  assert.notEqual(first, second);
+  assert.equal(await verifyPassword("correct-password", first, { pepper }), true);
+  assert.equal(await verifyPassword("wrong-password", first, { pepper }), false);
+  assert.equal(await verifyPassword("correct-password", first, { pepper: "wrong-pepper" }), false);
+});
 
 function cookiePair(response) {
   const cookie = response.headers.get("set-cookie");

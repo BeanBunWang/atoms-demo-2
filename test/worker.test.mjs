@@ -8,6 +8,7 @@ function testEnv(overrides = {}) {
   return {
     DEEPSEEK_API_KEY: "server-secret",
     DEEPSEEK_MODEL: "deepseek-v4-flash",
+    AUTH_PEPPER: "test-only-auth-pepper-with-enough-entropy",
     ASSETS: { fetch: async () => new Response("asset") },
     AGENT_RATE_LIMITER: { limit: async () => ({ success: true }) },
     ATOMS_DATA: createMemoryDataStore(),

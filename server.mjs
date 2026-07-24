@@ -153,7 +153,7 @@ async function serveStatic(requestPath, response) {
 
 export function createAppServer({ env, fetchImpl = fetch } = {}) {
   const runtimeEnv = env || process.env;
-  const auth = createAuthService(runtimeEnv.ATOMS_DATA || createMemoryDataStore());
+  const auth = createAuthService(runtimeEnv.ATOMS_DATA || createMemoryDataStore(), { passwordPepper: runtimeEnv.AUTH_PEPPER });
   return http.createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
     try {

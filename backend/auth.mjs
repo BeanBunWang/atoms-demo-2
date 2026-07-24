@@ -51,9 +51,21 @@ export function validatePassword(password) {
   return typeof password === "string" && password.length >= 8 && password.length <= 256;
 }
 
-export async function hashPassword(password, { iterations = PASSWORD_ITERATIONS } = {}) {
+export async function hashPassword(password, { iterations = PASSWORD_ITERATIONS, pepper = "" } = {}) {
   const salt = new Uint8Array(16);
   cryptoApi().getRandomValues(salt);
+  if (pepper) {
+    const saltText = base64UrlEncode(salt);
+    const key = await cryptoApi().subtle.importKey(
+      "raw",
+      textEncoder.encode(pepper),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const signature = await cryptoApi().subtle.sign("HMAC", key, textEncoder.encode(`${saltText}:${password}`));
+    return `hmac-sha256:${saltText}:${base64UrlEncode(new Uint8Array(signature))}`;
+  }
   const key = await cryptoApi().subtle.importKey("raw", textEncoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await cryptoApi().subtle.deriveBits(
     { name: "PBKDF2", hash: "SHA-256", salt, iterations },
@@ -63,8 +75,28 @@ export async function hashPassword(password, { iterations = PASSWORD_ITERATIONS 
   return `pbkdf2-sha256:${iterations}:${base64UrlEncode(salt)}:${base64UrlEncode(new Uint8Array(bits))}`;
 }
 
-export async function verifyPassword(password, storedHash) {
-  const [algorithm, iterationText, saltText, hashText] = String(storedHash || "").split(":");
+export async function verifyPassword(password, storedHash, { pepper } = {}) {
+  const parts = String(storedHash || "").split(":");
+  const [algorithm] = parts;
+  if (algorithm === "hmac-sha256") {
+    const [, saltText, hashText] = parts;
+    if (!pepper || !saltText || !hashText) return false;
+    const expected = base64UrlDecode(hashText);
+    const key = await cryptoApi().subtle.importKey(
+      "raw",
+      textEncoder.encode(pepper),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const signature = await cryptoApi().subtle.sign("HMAC", key, textEncoder.encode(`${saltText}:${password}`));
+    const actual = new Uint8Array(signature);
+    if (actual.byteLength !== expected.byteLength) return false;
+    let mismatch = 0;
+    for (let index = 0; index < actual.byteLength; index += 1) mismatch |= actual[index] ^ expected[index];
+    return mismatch === 0;
+  }
+  const [, iterationText, saltText, hashText] = parts;
   if (algorithm !== "pbkdf2-sha256" || !iterationText || !saltText || !hashText) return false;
   const iterations = Number(iterationText);
   if (!Number.isInteger(iterations) || iterations < 1) return false;
@@ -164,7 +196,7 @@ export function jsonByteLength(value) {
   return textEncoder.encode(JSON.stringify(value)).byteLength;
 }
 
-export function createAuthService(dataStore) {
+export function createAuthService(dataStore, { passwordPepper = "" } = {}) {
   const store = createDataStore(dataStore);
 
   async function createSession(user) {
@@ -191,7 +223,7 @@ export function createAuthService(dataStore) {
       id: `user_${randomToken(16)}`,
       name: String(name || normalizedEmail.split("@")[0] || "User").trim().slice(0, 60),
       email: normalizedEmail,
-      passwordHash: await hashPassword(password),
+      passwordHash: await hashPassword(password, { pepper: passwordPepper }),
       createdAt: nowIso()
     };
     await store.putJson(key, user);
@@ -202,7 +234,7 @@ export function createAuthService(dataStore) {
   async function login({ email, password }) {
     const normalizedEmail = normalizeEmail(email);
     const user = await store.getJson(userKey(normalizedEmail));
-    if (!user || !(await verifyPassword(password, user.passwordHash))) {
+    if (!user || !(await verifyPassword(password, user.passwordHash, { pepper: passwordPepper }))) {
       throw Object.assign(new Error("邮箱或密码错误"), { status: 401 });
     }
     const session = await createSession(user);
